@@ -6,10 +6,10 @@ This document captures the reverse-engineered formats, build pipeline, current s
 
 ## 1. Repository Layout
 
-- `Prism_Ark_Awake_PC_CG.xdelta` — `xdelta3` v3.2.2 patch (`49,976,369` bytes) targeting `Prism Ark - Awake (Japan).iso` (`SLPM-66846`).
+- `Prism_Ark_Awake_PC_CG.xdelta` — `xdelta3` v3.2.2 patch (`53,209,517` bytes) targeting `Prism Ark - Awake (Japan).iso` (`SLPM-66846`).
 - `README.md` — End-user patch instructions and SHA-256 verification checksums.
 - `src/port_cgs.py` — Main Python (`PIL`, `numpy`, `ctypes`) converter and `PA_CG.DAT` rebuilder.
-- `src/zzz_helper.c` — C library implementing PS2 `ZZZ\0` decompression/compression and PC `EPA` (`mode 0/1/2/3`) decompression.
+- `src/zzz_helper.c` — C library implementing PS2 `ZZZ\0` decompression/compression, PC `EPA` (`mode 0/1/2/3`) decompression, and 4D RGBA Median-Cut + Floyd-Steinberg quantization (`quantize_rgba_fs`).
 
 ---
 
@@ -31,7 +31,7 @@ This document captures the reverse-engineered formats, build pipeline, current s
    ```bash
    python src/port_cgs.py --pc-dir "/path/to/pc/p_ark" --ps2-dir "./_ps2_extract" --dll "./src/zzz_helper.dll"
    ```
-   This writes `_ps2_extract/PA_CG_NEW.DAT` (`518,793,216` bytes exact, zero-padded from `515,735,552` used bytes).
+   This writes `_ps2_extract/PA_CG_NEW.DAT` (`518,793,216` bytes exact, zero-padded from `518,766,592` used bytes).
 4. Inject `PA_CG_NEW.DAT` back into a copy of the PS2 ISO at `PA_CG.DAT`'s exact byte offset (**LBA `432995` × `2048` = `0x34db1800`**).
    - Because `PA_CG_NEW.DAT` stays `<= 518,793,216` bytes (`0x1eec2800`), ISO9660 and UDF directory tables do **not** need modification (`PA_VOI.DAT` follows immediately at LBA `686312`).
 5. Generate an `xdelta3` v3.2.2 patch:
@@ -75,15 +75,16 @@ This document captures the reverse-engineered formats, build pipeline, current s
 
 ## 4. Current Scope & Special Cases Already Handled
 
-`src/port_cgs.py` currently patches **311 `PAG` entries / 496 layers**:
+`src/port_cgs.py` currently patches **311 `PAG` containers / 495 texture layers**:
 - All matching `PG*` event CGs, `*MEMORY*`/`*BUST*` CGs (`EPA` mode `0/1/2`), and censored chibi event CGs (`PK05_6_03*`, `PK08_3_09*`).
+- Quantization uses Pillow `MEDIANCUT` + Floyd-Steinberg for purely opaque/padded layers (`alpha` in `{0, 255}`), and C `quantize_rgba_fs` (separate opaque vs semi-transparent variance-weighted Median-Cut + 4D Floyd-Steinberg with PS2 GS `0..128` alpha snapping) for layers with `0 < alpha < 255` (replacing Pillow's `FASTOCTREE` RGBA which ignored dithering and collapsed semi-transparent animation/glow layers to 8–46 colors).
 - Special PS2 layout/crop remappings handled in `build_special_image`:
   - `PG04_0_01_kyara1.epa` & `PG04_0_01_kyara2.epa` (`[1209]`, `[1211]`, `[1212]`): PS2 rearranged characters horizontally across `785×450` (Ritte+Bridget moved left in `kyara2`, Filia moved from `kyara2` left segment behind Kagura+Pria in `kyara1`).
   - `PG09_6_00_BACK.EPA`, `PG09_6_00_RITTE.EPA`, `PG09_6_00_MAIN` (`[1235]`, `[1236]`, `[1237]`): Top `800×600` crop of taller PC layers (`1172`/`1402`) and composite for `pg09_6_00.epa`.
   - `PGIN_7_03AS` (`[1350]`): Splits PC `PGIN_7_03L.epa` (`1600×1200`) into left/right `800×1200` halves for `pgin_7_03l1.epa` and `pgin_7_03l2.epa` (`640×900`), plus `pgin_7_03ll.epa` (`640×914`).
   - `PG12_3_02L` & `PG12_3_02BKL` (`[1272]`, `[1274]`): Scaled to `(640, 740)` inside `640×744` so the lower body is not clipped by PS2's original `~0.87x` zoom crop.
   - `PG13_0_CAP01..03` (`[1294]`, `[1297]`): Center-cropped PC `820×620` shake canvas to `800×600` (`640×450`).
-  - Preserved untouched: `PG10_3_00_MAIN` (`[1241]`, already uncensored on PS2), `PG01_1_00SHIBUKI.EPA` (`[1168]`, scroll-width water splash overlay), `white.epa`, `black.epa`, `mouse_on_se.epa`, `fl_*.epa`.
+  - Preserved untouched: `PG10_3_00_MAIN` (`[1241]`, already uncensored on PS2), `PG01_1_00SHIBUKI.EPA` (`[1168]`, scroll-width water splash overlay), `pg01_1_00screen.epa` (`[1168]`, PC `mode=1` opaque RGB vs PS2 `251`-step alpha screen overlay), `white.epa`, `black.epa`, `mouse_on_se.epa`, `fl_*.epa`.
 
 ---
 

@@ -23,9 +23,11 @@ def init_dll(dll_path: str):
     dll.compress_zzz.restype = ctypes.c_int
     dll.decode_epa.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
     dll.decode_epa.restype = ctypes.c_int
+    dll.quantize_rgba_fs.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p]
+    dll.quantize_rgba_fs.restype = ctypes.c_int
 
 IDX_SWIZZLE = np.array([(i & ~0x18) | ((i & 0x08) << 1) | ((i & 0x10) >> 1) for i in range(256)], dtype=np.uint8)
-SKIP_EPAS = {'mouse_on_se.epa', 'white.epa', 'black.epa', 'fl_yoru_zyo_g.epa', 'fl_yu_zyo_g.epa'}
+SKIP_EPAS = {'mouse_on_se.epa', 'white.epa', 'black.epa', 'fl_yoru_zyo_g.epa', 'fl_yu_zyo_g.epa', 'pg01_1_00screen.epa'}
 
 
 def decompress_zzz(raw: bytes) -> bytes:
@@ -181,15 +183,24 @@ def build_special_image(pc_idx, pname_u: str, ename_u: str, layer_idx: int, bw: 
 
 def quantize_to_ps2(canvas_im: Image.Image) -> tuple[np.ndarray, np.ndarray]:
     """Quantize RGBA image to 256-color indexed buffer + CSM1-swizzled PS2 CLUT (alpha 0..0x80)."""
-    rgba = np.array(canvas_im, dtype=np.uint8)
+    rgba = np.ascontiguousarray(canvas_im, dtype=np.uint8)
     h, w = rgba.shape[:2]
     alpha = rgba[:, :, 3]
     trans_mask = alpha == 0
     has_trans = bool(trans_mask.any())
     has_semitrans = bool(((alpha > 0) & (alpha < 255)).any())
 
-    if has_trans and not has_semitrans:
-        # Pure opaque content + transparent padding/cutout: use MEDIANCUT + FS on RGB for smooth gradients
+    if has_semitrans:
+        reserve_zero = 1 if has_trans else 0
+        idx = np.empty((h, w), dtype=np.uint8)
+        clut = np.empty((256, 4), dtype=np.uint8)
+        rc = dll.quantize_rgba_fs(
+            rgba.ctypes.data_as(ctypes.c_char_p), w, h, reserve_zero,
+            idx.ctypes.data_as(ctypes.c_char_p), clut.ctypes.data_as(ctypes.c_char_p),
+        )
+        if rc < 0:
+            raise RuntimeError(f'quantize_rgba_fs failed: {rc}')
+    elif has_trans:
         rgb_im = Image.fromarray(rgba[:, :, :3], 'RGB')
         q_im = rgb_im.quantize(colors=255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG)
         raw_rgb = np.array(q_im.getpalette('RGB'), dtype=np.uint8).reshape(-1, 3)
@@ -197,15 +208,6 @@ def quantize_to_ps2(canvas_im: Image.Image) -> tuple[np.ndarray, np.ndarray]:
         clut = np.zeros((256, 4), dtype=np.uint8)
         clut[1:1 + n_pal, :3] = raw_rgb[:n_pal]
         clut[1:1 + n_pal, 3] = 255
-        idx = np.array(q_im, dtype=np.uint8) + 1
-        idx[trans_mask] = 0
-    elif has_trans:
-        # Reserve index 0 for exact transparent [0,0,0,0]
-        q_im = canvas_im.quantize(colors=255, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.FLOYDSTEINBERG)
-        raw_pal = np.array(q_im.getpalette('RGBA'), dtype=np.uint8).reshape(-1, 4)
-        n_pal = min(255, len(raw_pal))
-        clut = np.zeros((256, 4), dtype=np.uint8)
-        clut[1:1 + n_pal] = raw_pal[:n_pal]
         idx = np.array(q_im, dtype=np.uint8) + 1
         idx[trans_mask] = 0
     else:
