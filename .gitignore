@@ -1,0 +1,8 @@
+*.iso
+*.ISO
+*.DAT
+*.dll
+*.exe
+_ps2_extract/
+_verify*
+__pycache__/
