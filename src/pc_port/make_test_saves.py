@@ -9,7 +9,16 @@ import common
 OUT_DIR = os.path.join(common.MOD_OUT_DIR, "test_saves")
 
 
-def make_save(template_sav: bytes, template_thumb: bytes, slot: int, msg_id: int, ret_ip: int, title: str, route: int):
+def make_save(
+    template_sav: bytes,
+    template_thumb: bytes,
+    slot: int,
+    msg_id: int,
+    ret_ip: int,
+    title: str,
+    route: int,
+    party_exp: int | None = None,
+):
     buf = bytearray(template_sav)
     # 1. Chapter title at 0x2db4 (0x100 bytes, CP932 null-terminated)
     tb = title.encode("cp932")
@@ -18,6 +27,11 @@ def make_save(template_sav: bytes, template_thumb: bytes, slot: int, msg_id: int
 
     # 2. Local variable 0x10000000 (heroine route: 0=common, 8=Ruah) at 0x2ed4
     struct.pack_into("<I", buf, 0x2ed4, route)
+
+    # 2b. Optional party EXP override for all 9 character slots (0..8 incl. Ruah at slot 8)
+    #     var[0x100001c2..0x100001ca] -> byte offset 0x2ed4 + 0x708 = 0x35dc
+    if party_exp is not None:
+        struct.pack_into("<9I", buf, 0x35dc, *([party_exp] * 9))
 
     # 3. Current resume msg_id ([0x7624f0] -> looked up by 0x43fda1) at 0x43b8
     struct.pack_into("<I", buf, 0x43b8, msg_id)
@@ -31,7 +45,8 @@ def make_save(template_sav: bytes, template_thumb: bytes, slot: int, msg_id: int
         f.write(buf)
     with open(th_path, "wb") as f:
         f.write(template_thumb)
-    print(f"  Created save{slot:03d}.sav (Slot {slot+1}): msg_id={msg_id}, ret=0x{ret_ip:06x}, route={route}, title={title!r}")
+    exp_s = f", party_exp={party_exp}" if party_exp is not None else ""
+    print(f"  Created save{slot:03d}.sav (Slot {slot+1}): msg_id={msg_id}, ret=0x{ret_ip:06x}, route={route}{exp_s}, title={title!r}")
 
 
 def main():
@@ -43,13 +58,14 @@ def main():
 
     # Verify all 4 target msg_ids exist uniquely in staged scenario.dat
     sf = open(os.path.join(common.WORK_DIR, "staged", "scenario.dat"), "rb").read()
+    # 30,000 EXP -> Level 40 for all 9 party slots (0..8 incl. Hayaway & Ruah)
     targets = [
-        (5, 67567, 0x001f5c, "乙女あり、遠方より来たる？",       0),
-        (6, 93584, 0x0024b4, "運命の選択",                       0),
-        (7, 93888, 0x0026ac, "ひみつのレッスン",                  8),
-        (8, 95173, 0x0026ac, "ひみつのレッスン（ルーア参戦直前）", 8),
+        (5, 67567, 0x001f5c, "乙女あり、遠方より来たる？",       0, None),
+        (6, 93584, 0x0024b4, "運命の選択",                       0, 30000),
+        (7, 93888, 0x0026ac, "ひみつのレッスン",                  8, 30000),
+        (8, 95173, 0x0026ac, "ひみつのレッスン（ルーア参戦直前）", 8, 30000),
     ]
-    for slot, mid, ret_ip, title, route in targets:
+    for slot, mid, ret_ip, title, route, party_exp in targets:
         # Simulate 0x43fda1 scan from offset 0x20!
         pos = 32
         found = None
@@ -65,7 +81,7 @@ def main():
                 break
             pos += nw * 4
         assert found is not None and found >= 0x435000, f"msg_id {mid} resolved to unexpected offset {found}"
-        make_save(template_sav, template_thumb, slot, mid, ret_ip, title, route)
+        make_save(template_sav, template_thumb, slot, mid, ret_ip, title, route, party_exp=party_exp)
 
     print(f"\nTest saves written to: {OUT_DIR}")
 
