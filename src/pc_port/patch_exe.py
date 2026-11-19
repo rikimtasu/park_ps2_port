@@ -119,10 +119,21 @@ def build_ruah_section_and_patches(exact_unp: bytes):
     g_cut_paths = alloc_data(orig_cut_paths + struct.pack("<3I", s_bte09a, s_bte09b, s_cut09))
     g_cut_handles = alloc_zeros(10 * 12)
 
-    # In-battle Status screen banner for Ruah (st_e09.tga) — lazy loaded on first view
+    # Camp Status banner (st_e09.tga) & Character Sheet (ca_b09.tga / ca_c09.tga) — lazy-loaded CSprite*
     s_ste09 = alloc_data("data/campaign/ステータス/キャラ文字/st_e09.tga\x00".encode("cp932"))
-    g_ste09_handle = alloc_zeros(4)
+    s_cab09 = alloc_data("data/campaign/キャラクターシート/キャラクター/ca_b09.tga\x00".encode("cp932"))
+    s_cac09 = alloc_data("data/campaign/キャラクターシート/説明/ca_c09.tga\x00".encode("cp932"))
+    g_ste09_tex = alloc_zeros(4)
+    g_ste09_spr = alloc_zeros(4)
     g_ste_override = alloc_zeros(4)
+    g_cab09_tex = alloc_zeros(4)
+    g_cab09_spr = alloc_zeros(4)
+    g_cab_override = alloc_zeros(4)
+    g_cab_old_override = alloc_zeros(4)
+    g_cac09_tex = alloc_zeros(4)
+    g_cac09_spr = alloc_zeros(4)
+    g_cac_override = alloc_zeros(4)
+    g_ste09_handle = g_ste09_spr  # alias for info dict
 
     # Self-heal voice SE ID table (0x553498 had 9 dwords -> expand to 10)
     orig_self_heal = read_unp(0x553498, 9 * 4)
@@ -169,13 +180,54 @@ def build_ruah_section_and_patches(exact_unp: bytes):
 
     tramp_exp_snap = alloc_code(build_tramp_exp_snap)
 
+    # Helper: cdecl CSprite* load_sprite(const char* path, CTexture** p_tex, CSprite** p_spr)
+    # Exact vanilla sequence (0x404CB3..0x404CE3): 0x4215F0 -> GetHeight(0x48DE20) -> GetWidth(0x484F30) -> CreateSprite(0x4A2E60)
+    def build_helper_load_sprite(va: int) -> bytes:
+        out = bytearray()
+        # push esi; push edi
+        # [esp+12]=path, [esp+16]=p_tex, [esp+20]=p_spr
+        out += b"\x56\x57"                  # push esi; push edi
+        out += b"\x8B\x7C\x24\x14"          # mov edi, [esp+20] (p_spr)
+        out += b"\x8B\x07"                  # mov eax, [edi]
+        out += b"\x85\xC0"                  # test eax, eax
+        j_done1 = len(out); out += b"\x75\x00"  # jne .ret
+        out += b"\x8B\x74\x24\x10"          # mov esi, [esp+16] (p_tex)
+        out += b"\x8B\x44\x24\x0C"          # mov eax, [esp+12] (path)
+        out += b"\x56\x50"                  # push esi (p_tex); push eax (path)
+        out += call_rel32(va + len(out), 0x4215F0)
+        out += b"\x83\xC4\x08"              # add esp, 8
+        out += b"\x8B\x0E"                  # mov ecx, [esi] (CTexture*)
+        out += b"\x85\xC9"                  # test ecx, ecx
+        j_fail = len(out); out += b"\x74\x00"   # je .fail
+        out += b"\x57"                      # push edi (p_spr -> arg5 of CreateSprite)
+        out += call_rel32(va + len(out), 0x48DE20)  # eax = tex->GetHeight()
+        out += b"\x8B\x0E\x50"              # mov ecx, [esi]; push eax (arg4 = h)
+        out += call_rel32(va + len(out), 0x484F30)  # eax = tex->GetWidth()
+        out += b"\x8B\x0E\x50\x6A\x00\x6A\x00"      # mov ecx, [esi]; push eax (w); push 0; push 0
+        out += call_rel32(va + len(out), 0x4A2E60)  # tex->CreateSprite(0,0,w,h,p_spr), callee-cleans 20B
+        out += b"\x8B\x07"                  # mov eax, [edi] (CSprite*)
+        j_done2 = len(out); out += b"\xEB\x00"
+        off_fail = len(out)
+        out[j_fail + 1] = off_fail - (j_fail + 2)
+        out += b"\x33\xC0"                  # xor eax, eax
+        off_ret = len(out)
+        out[j_done1 + 1] = off_ret - (j_done1 + 2)
+        out[j_done2 + 1] = off_ret - (j_done2 + 2)
+        out += b"\x5F\x5E\xC3"              # pop edi; pop esi; ret
+        return bytes(out)
+
+    helper_load_sprite = alloc_code(build_helper_load_sprite)
+
     # Trampoline B: bt_v%02d.tga loader index fetch (hook at 0x40E980..0x40E985)
-    # Also resets g_ste09_handle=0 when esi==0 (fresh battle init) so no stale handle persists across battles!
+    # Also resets lazy-loaded Camp CSprite/CTexture handles when esi==0 (fresh battle init)!
     def build_tramp_btv_idx(va: int) -> bytes:
         out = bytearray()
-        out += b"\x85\xF6"                                  # test esi, esi
-        out += b"\x75\x0A"                                  # jne +10
-        out += b"\xC7\x05" + struct.pack("<II", g_ste09_handle, 0)  # mov dword ptr [g_ste09_handle], 0
+        out += b"\x85\xF6"                  # test esi, esi
+        j_skip = len(out); out += b"\x75\x00"
+        for gva in (g_ste09_tex, g_ste09_spr, g_cab09_tex, g_cab09_spr, g_cac09_tex, g_cac09_spr):
+            out += b"\xC7\x05" + struct.pack("<II", gva, 0)
+        off_skip = len(out)
+        out[j_skip + 1] = off_skip - (j_skip + 2)
         out += b"\x8B\x8E" + struct.pack("<I", g_btv_indices)       # mov ecx, [esi + g_btv_indices]
         out += b"\x51"                                      # push ecx
         out += jmp_rel32(va + len(out), 0x40E985)
@@ -222,39 +274,27 @@ def build_ruah_section_and_patches(exact_unp: bytes):
 
     tramp_cut_ofs = alloc_code(build_tramp_cut_ofs)
 
-    # Trampoline E1 & E2: In-battle Status screen st_e09.tga banner (hooks at 0x40A022 & 0x40A0A1)
+    # Trampoline E1 & E2: In-battle Status screen st_e09.tga CSprite* banner (hooks at 0x40A022 & 0x40A0A1)
     def build_tramp_ste_check(va: int) -> bytes:
         out = bytearray()
-        # Reset override = 0
         out += b"\xC7\x05" + struct.pack("<II", g_ste_override, 0)
-        # cmp edi, 8; jg .check9
-        out += b"\x83\xFF\x08"
-        j_check9 = len(out)
-        out += b"\x7F\x00"
+        out += b"\x83\xFF\x08"              # cmp edi, 8
+        j_check9 = len(out); out += b"\x7F\x00"
         # Vanilla 0..8: mov eax, [ebp + edi*4 + 0x13c]; add edi, 6; jmp 0x40a035
         out += b"\x8B\x84\xBD\x3C\x01\x00\x00"
         out += b"\x83\xC7\x06"
         out += jmp_rel32(va + len(out), 0x40A035)
-        # .check9: cmp edi, 9; jne .skip
         off_check9 = len(out)
         out[j_check9 + 1] = off_check9 - (j_check9 + 2)
-        out += b"\x83\xFF\x09"
-        j_skip = len(out)
-        out += b"\x75\x00"
-        # Lazy-load st_e09.tga into g_ste09_handle via call 0x4215F0(s_ste09, &g_ste09_handle)
-        out += b"\xA1" + struct.pack("<I", g_ste09_handle)  # mov eax, [g_ste09_handle]
-        out += b"\x85\xC0"                  # test eax, eax
-        j_loaded = len(out)
-        out += b"\x75\x00"
-        out += b"\x68" + struct.pack("<I", g_ste09_handle)
+        out += b"\x83\xFF\x09"              # cmp edi, 9
+        j_skip = len(out); out += b"\x75\x00"
+        out += b"\x68" + struct.pack("<I", g_ste09_spr)
+        out += b"\x68" + struct.pack("<I", g_ste09_tex)
         out += b"\x68" + struct.pack("<I", s_ste09)
-        out += call_rel32(va + len(out), 0x4215F0)
-        out += b"\x83\xC4\x08"              # add esp, 8
-        out += b"\xA1" + struct.pack("<I", g_ste09_handle)
-        off_loaded = len(out)
-        out[j_loaded + 1] = off_loaded - (j_loaded + 2)
-        out += b"\xA3" + struct.pack("<I", g_ste_override)  # mov [g_ste_override], eax
-        out += b"\xBF\x0D\x00\x00\x00"      # mov edi, 13 (st_e06 coord slot = identical 800x64 banner)
+        out += call_rel32(va + len(out), helper_load_sprite)
+        out += b"\x83\xC4\x0C"              # add esp, 12
+        out += b"\xA3" + struct.pack("<I", g_ste_override)
+        out += b"\xBF\x0D\x00\x00\x00"      # mov edi, 13 (st_e06 coord slot = 800x64 banner)
         out += jmp_rel32(va + len(out), 0x40A035)
         off_skip = len(out)
         out[j_skip + 1] = off_skip - (j_skip + 2)
@@ -265,7 +305,6 @@ def build_ruah_section_and_patches(exact_unp: bytes):
 
     def build_tramp_ste_get(va: int) -> bytes:
         out = bytearray()
-        # mov eax, [g_ste_override]; test eax, eax; jne .done; mov eax, [ebp + edi*4 + 0x124]
         out += b"\xA1" + struct.pack("<I", g_ste_override)
         out += b"\x85\xC0"
         out += b"\x75\x07"
@@ -274,6 +313,110 @@ def build_ruah_section_and_patches(exact_unp: bytes):
         return bytes(out)
 
     tramp_ste_get = alloc_code(build_tramp_ste_get)
+
+    # Trampolines F1..F6: Camp Character Sheet (ca_b09.tga portrait + ca_c09.tga bio card)
+    def build_tramp_cab_check(va: int) -> bytes:
+        out = bytearray()
+        out += b"\xC7\x05" + struct.pack("<II", g_cab_override, 0)
+        out += b"\x83\xFB\x09"              # cmp ebx, 9
+        j_ruah = len(out); out += b"\x74\x00"
+        out += b"\x8B\x84\x9F\xB8\x00\x00\x00\x43"  # mov eax, [edi+ebx*4+0xb8]; inc ebx
+        out += jmp_rel32(va + len(out), 0x4048CA)
+        off_r = len(out)
+        out[j_ruah + 1] = off_r - (j_ruah + 2)
+        out += b"\x68" + struct.pack("<I", g_cab09_spr)
+        out += b"\x68" + struct.pack("<I", g_cab09_tex)
+        out += b"\x68" + struct.pack("<I", s_cab09)
+        out += call_rel32(va + len(out), helper_load_sprite)
+        out += b"\x83\xC4\x0C"
+        out += b"\xA3" + struct.pack("<I", g_cab_override)
+        out += b"\xBB\x04\x00\x00\x00"      # mov ebx, 4 (ca_b03 640x640 portrait rect)
+        out += jmp_rel32(va + len(out), 0x4048CA)
+        return bytes(out)
+
+    tramp_cab_check = alloc_code(build_tramp_cab_check)
+
+    def build_tramp_cab_get(va: int) -> bytes:
+        out = bytearray()
+        out += b"\x8B\x15" + struct.pack("<I", g_cab_override)
+        out += b"\x85\xD2"
+        out += b"\x75\x07"
+        out += b"\x8B\x94\x9F\xB4\x00\x00\x00"
+        out += jmp_rel32(va + len(out), 0x40495B)
+        return bytes(out)
+
+    tramp_cab_get = alloc_code(build_tramp_cab_get)
+
+    def build_tramp_cab_old_check(va: int) -> bytes:
+        out = bytearray()
+        out += b"\x50"                      # push eax (save slide timer 0x164(%edi)!)
+        out += b"\xC7\x05" + struct.pack("<II", g_cab_old_override, 0)
+        out += b"\x8B\x9F\x60\x01\x00\x00"  # mov ebx, [edi+0x160]
+        out += b"\x83\xFB\x09"              # cmp ebx, 9
+        j_ruah = len(out); out += b"\x74\x00"
+        out += b"\x43"                      # inc ebx
+        out += b"\x8B\x84\x9F\xB4\x00\x00\x00"  # mov eax, [edi+ebx*4+0xb4]
+        j_done = len(out); out += b"\xEB\x00"
+        off_r = len(out)
+        out[j_ruah + 1] = off_r - (j_ruah + 2)
+        out += b"\x68" + struct.pack("<I", g_cab09_spr)
+        out += b"\x68" + struct.pack("<I", g_cab09_tex)
+        out += b"\x68" + struct.pack("<I", s_cab09)
+        out += call_rel32(va + len(out), helper_load_sprite)
+        out += b"\x83\xC4\x0C"
+        out += b"\xA3" + struct.pack("<I", g_cab_old_override)
+        out += b"\xBB\x04\x00\x00\x00"      # mov ebx, 4
+        off_d = len(out)
+        out[j_done + 1] = off_d - (j_done + 2)
+        out += b"\x5A"                      # pop edx (restore slide timer)
+        out += b"\x33\xC9\x85\xD2"          # xor ecx, ecx; test edx, edx (sets flags for 0x40498B setle cl!)
+        out += jmp_rel32(va + len(out), 0x40498B)
+        return bytes(out)
+
+    tramp_cab_old_check = alloc_code(build_tramp_cab_old_check)
+
+    def build_tramp_cab_old_get(va: int) -> bytes:
+        out = bytearray()
+        out += b"\x8B\x15" + struct.pack("<I", g_cab_old_override)
+        out += b"\x85\xD2"
+        out += b"\x75\x07"
+        out += b"\x8B\x94\x9F\xB4\x00\x00\x00"
+        out += jmp_rel32(va + len(out), 0x404A34)
+        return bytes(out)
+
+    tramp_cab_old_get = alloc_code(build_tramp_cab_old_get)
+
+    def build_tramp_cac_check(va: int) -> bytes:
+        out = bytearray()
+        out += b"\xC7\x05" + struct.pack("<II", g_cac_override, 0)
+        out += b"\x83\xFB\x09"              # cmp ebx, 9
+        j_ruah = len(out); out += b"\x74\x00"
+        out += b"\x8B\x84\x9F\xDC\x00\x00\x00\x83\xC3\x0A"  # mov eax, [edi+ebx*4+0xdc]; add ebx, 10
+        out += jmp_rel32(va + len(out), 0x404A54)
+        off_r = len(out)
+        out[j_ruah + 1] = off_r - (j_ruah + 2)
+        out += b"\x68" + struct.pack("<I", g_cac09_spr)
+        out += b"\x68" + struct.pack("<I", g_cac09_tex)
+        out += b"\x68" + struct.pack("<I", s_cac09)
+        out += call_rel32(va + len(out), helper_load_sprite)
+        out += b"\x83\xC4\x0C"
+        out += b"\xA3" + struct.pack("<I", g_cac_override)
+        out += b"\xBB\x0D\x00\x00\x00"      # mov ebx, 13 (ca_c03 400x560 bio rect)
+        out += jmp_rel32(va + len(out), 0x404A54)
+        return bytes(out)
+
+    tramp_cac_check = alloc_code(build_tramp_cac_check)
+
+    def build_tramp_cac_get(va: int) -> bytes:
+        out = bytearray()
+        out += b"\xA1" + struct.pack("<I", g_cac_override)
+        out += b"\x85\xC0"
+        out += b"\x75\x07"
+        out += b"\x8B\x84\x9F\xB4\x00\x00\x00"
+        out += jmp_rel32(va + len(out), 0x404AC7)
+        return bytes(out)
+
+    tramp_cac_get = alloc_code(build_tramp_cac_get)
 
     # ------------------------------------------------------------------
     # 3. Inline code replacements (map_ch_to_sheet & cover voice dispatcher)
@@ -423,12 +566,31 @@ def build_ruah_section_and_patches(exact_unp: bytes):
          jmp_rel32(0x41569E, tramp_cut_ofs) + b"\x90" * 22),
         (0x4156BD, bytes.fromhex("8b048558f55900"), b"\x8B\x04\x85" + struct.pack("<I", g_cut_handles + 8)),
 
-        # 2f. In-battle Status screen: st_e09.tga banner + allow ch=9 in [ecx+0x1874]
+        # 2f. In-battle Status screen: st_e09.tga CSprite* banner + allow ch=9 in [ecx+0x1874]
         (0x40A022, bytes.fromhex("83ff080f8f840000008b84bd3c01000083c706"),
          jmp_rel32(0x40A022, tramp_ste_check) + b"\x90" * 14),
         (0x40A0A1, bytes.fromhex("8b84bd24010000"),
          jmp_rel32(0x40A0A1, tramp_ste_get) + b"\x90\x90"),
         (0x40A484, bytes.fromhex("663d0800"), bytes.fromhex("663d0900")),
+
+        # 2g. Camp Character Sheet (CHR.STATUS): cycle 0..9 (mod 10) + ca_b09.tga & ca_c09.tga CSprite*
+        (0x409DC8, bytes.fromhex("b909000000"), bytes.fromhex("b90a000000")),
+        (0x409E0F, bytes.fromhex("83ff09"), bytes.fromhex("83ff0a")),
+        (0x409E66, bytes.fromhex("83c008"), bytes.fromhex("83c009")),
+        (0x409E6A, bytes.fromhex("b909000000"), bytes.fromhex("b90a000000")),
+        (0x409EAF, bytes.fromhex("83ff09"), bytes.fromhex("83ff0a")),
+        (0x4048C2, bytes.fromhex("8b849fb800000043"),
+         jmp_rel32(0x4048C2, tramp_cab_check) + b"\x90" * 3),
+        (0x404954, bytes.fromhex("8b949fb4000000"),
+         jmp_rel32(0x404954, tramp_cab_get) + b"\x90\x90"),
+        (0x404979, bytes.fromhex("8b9f6001000033c94385c08b849fb4000000"),
+         jmp_rel32(0x404979, tramp_cab_old_check) + b"\x90" * 13),
+        (0x404A2D, bytes.fromhex("8b949fb4000000"),
+         jmp_rel32(0x404A2D, tramp_cab_old_get) + b"\x90\x90"),
+        (0x404A4A, bytes.fromhex("8b849fdc00000083c30a"),
+         jmp_rel32(0x404A4A, tramp_cac_check) + b"\x90" * 5),
+        (0x404AC0, bytes.fromhex("8b849fb4000000"),
+         jmp_rel32(0x404AC0, tramp_cac_get) + b"\x90\x90"),
 
         # --- Group 3: 3D Model Flags, Costume, Retire, Doppelganger & Battle Voices ---
         # 3a. Costume suffix (_H/_B), RETIRE_3, 3D model X-scale flip, effect flag

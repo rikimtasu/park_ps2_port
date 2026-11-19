@@ -15,7 +15,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
@@ -214,6 +214,77 @@ def generate_ruah_ui_tgas(read_pc_b, preview_dir: str | None = None) -> list[tup
     draw.text((168, 6), "ルーア", font=f_serif_st, fill=(46, 38, 30, 255))
     draw.text((296, 26), "R U A H", font=f_serif_st_en, fill=(46, 38, 30, 255))
     emit("data/campaign/ステータス/キャラ文字/st_e09.tga", ste_out)
+
+    # ------------------------------------------------------------------
+    # 6. ca_b09.tga (640x640): Camp Character Sheet standing portrait
+    # ------------------------------------------------------------------
+    cab_out = Image.new("RGBA", (640, 640), (0, 0, 0, 0))
+    sc_b = min(560.0 / ruah_tight.width, 590.0 / ruah_tight.height)
+    bw, bh = int(ruah_tight.width * sc_b), int(ruah_tight.height * sc_b)
+    ruah_cab = ruah_tight.resize((bw, bh), Image.Resampling.LANCZOS)
+    bx, by = (640 - bw) // 2, 620 - bh
+    # Soft drop shadow matching vanilla ca_b03.tga
+    shad = Image.new("RGBA", (640, 640), (0, 0, 0, 0))
+    s_alpha = ruah_cab.split()[3].point(lambda v: int(v * 0.45))
+    shad_fg = Image.new("RGBA", (bw, bh), (28, 22, 32, 255))
+    shad_fg.putalpha(s_alpha)
+    shad.alpha_composite(shad_fg, (bx + 10, by + 10))
+    shad = shad.filter(ImageFilter.GaussianBlur(radius=6))
+    cab_out.alpha_composite(shad)
+    cab_out.alpha_composite(ruah_cab, (bx, by))
+    emit("data/campaign/キャラクターシート/キャラクター/ca_b09.tga", cab_out)
+
+    # ------------------------------------------------------------------
+    # 7. ca_c09.tga (400x560): Camp Character Sheet bio & class card
+    # ------------------------------------------------------------------
+    cac_out = Image.new("RGBA", (400, 560), (0, 0, 0, 0))
+    cd = ImageDraw.Draw(cac_out)
+    serif_path = r"C:\Windows\Fonts\msmincho.ttc"
+    if not os.path.exists(serif_path):
+        serif_path = r"C:\Windows\Fonts\msgothic.ttc"
+    fc_name = ImageFont.truetype(serif_path, 40)
+    fc_en = ImageFont.truetype(serif_path, 18)
+    fc_cls_l = ImageFont.truetype(serif_path, 26)
+    fc_cls = ImageFont.truetype(serif_path, 36)
+    fc_cls_en = ImageFont.truetype(serif_path, 13)
+    fc_hdr = ImageFont.truetype(serif_path, 24)
+    fc_sym = ImageFont.truetype(serif_path, 28)
+    fc_body = ImageFont.truetype(serif_path, 17)
+
+    blue = (84, 108, 168, 255)
+    pink = (218, 128, 148, 255)
+    # Name + horizontal bar matching ca_c03.tga
+    cd.text((112, 26), "ル ー ア", font=fc_name, fill=blue)
+    cd.text((110, 24), "ル ー ア", font=fc_name, fill=pink)
+    cd.rectangle((18, 70, 322, 72), fill=pink)
+    cd.rectangle((18, 72, 322, 74), fill=blue)
+    cd.text((126, 78), "R   U   A   H", font=fc_en, fill=pink)
+
+    # CLASS section
+    cd.text((76, 124), "CLASS", font=fc_cls_l, fill=blue)
+    cd.text((196, 114), "魔導騎士", font=fc_cls, fill=blue)
+    cd.text((198, 152), "M A G I C  K N I G H T", font=fc_cls_en, fill=blue)
+
+    # 攻撃 / 魔法 / 回復 ratings
+    for cx, lbl, sym in [(86, "攻撃", "○"), (186, "魔法", "○"), (286, "回復", "○")]:
+        cd.text((cx, 178), lbl, font=fc_hdr, fill=blue)
+        cd.text((cx + 10, 208), sym, font=fc_sym, fill=blue)
+
+    # Bio body text
+    bio_lines = [
+        "記憶を失いローゼンベルグ騎士養成",
+        "学校へ転入してきた謎の少女。",
+        "ハヤウェイに守られたことを機に、",
+        "自らも戦う決意を固める。",
+        "攻防・魔法・回復のバランスに優れ、",
+        "専用スキル『ウーリー・ゼカルヤー』",
+        "による強力な光属性魔法や自己回復で",
+        "前線から後衛まで幅広く活躍する。",
+    ]
+    for idx_l, ln in enumerate(bio_lines):
+        cd.text((54, 254 + idx_l * 24), ln, font=fc_body, fill=blue)
+
+    emit("data/campaign/キャラクターシート/説明/ca_c09.tga", cac_out)
 
     return results
 

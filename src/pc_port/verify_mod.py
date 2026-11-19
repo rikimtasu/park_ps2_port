@@ -473,6 +473,8 @@ def main():
         "data/manabe/戦闘終了画像/bte_09a.tga",
         "data/manabe/戦闘終了画像/bte_09b.tga",
         "data/campaign/ステータス/キャラ文字/st_e09.tga",
+        "data/campaign/キャラクターシート/キャラクター/ca_b09.tga",
+        "data/campaign/キャラクターシート/説明/ca_c09.tga",
     ]
     for req in req_ruah_battle_assets:
         if req.lower() not in b1_idx:
