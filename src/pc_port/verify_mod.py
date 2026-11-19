@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import struct
 import subprocess
@@ -7,6 +8,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
 import patch_exe
+import awake_movies
 
 
 def read_pac2_member(arch_path: str, member_upper: str, cache: dict) -> bytes | None:
@@ -241,15 +243,20 @@ def main():
         ported_ins.append((pos, w, args))
         pos += nw * 4
 
-    # Check all 15 patched Master Dispatcher hooks + 10 Omake hooks land on valid instruction boundaries!
+    # Check dispatcher, Omake, Awake replay, and startup hooks land on instruction boundaries.
     hook_offsets = [0x1f58, 0x1fdc, 0x2060, 0x20dc, 0x42fe0c, 0x23a8, 0x242c, 0x24b0,
                     0x2698, 0x286c, 0x2a38, 0x2c14, 0x2de8, 0x2fb4, 0x314c,
                     0x40c368, 0x40d574, 0x40f28c, 0x42f358, 0x42f8e4,
-                    0x413fac, 0x415760, 0x415bdc, 0x417bf0, 0x42e5a4]
+                    0x413fac, 0x415760, 0x415bdc, 0x417bf0, 0x42e5a4,
+                    0x42f394, 0x1cc, 0x4f0, 0x774, 0x74c]
     for ho in hook_offsets:
         tgt = struct.unpack_from("<I", sf, ho)[0]
         if tgt not in valid_ips:
             errors.append(f"Hook at 0x{ho:x} target 0x{tgt:x} not a valid ported IP!")
+
+    title_wait = struct.pack("<4I", 0x01000502, 1000, 0x01000202, 0x768)
+    if sf[0x758:0x768] != title_wait:
+        errors.append("Title idle loop is missing its real one-second timed wait")
 
     # Verify Expanded Omake base plates (winning from ruah_mod.dat) & 22 new Omake graphic.bin records
     for omake_base in ("sys_oc_base04.EPA", "sys_oc_base07.EPA", "sys_oc_base08.EPA", "sys_oc_base09c.EPA",
@@ -272,6 +279,9 @@ def main():
             errors.append(f"Bad graphic.bin (x, y) for SYS_OM_P4M{s:02d}: {gb_xy.get(f'SYS_OM_P4M{s:02d}')}")
     if gb_xy.get("SYS_OV_B20") != (579, 402):
         errors.append(f"Bad graphic.bin (x, y) for SYS_OV_B20: {gb_xy.get('SYS_OV_B20')}")
+    for _, _, _, button, xy in awake_movies.OPENINGS:
+        if gb_xy.get(button) != xy:
+            errors.append(f"Bad Awake movie button position for {button}: {gb_xy.get(button)}")
     if len({gb_xy.get(f"SYS_OC_THUMB08{s:02d}") for s in range(7, 18)}) != 11:
         errors.append("Duplicate (x, y) coordinates among SYS_OC_THUMB0807..0817 in graphic.bin!")
 
@@ -358,24 +368,34 @@ def main():
                 elif w in mov_ops:
                     if u not in checked_mov:
                         checked_mov.add(u)
-                        mp1 = os.path.join(mod_dir, "exp", nm)
-                        mp2 = os.path.join(pc_dir, "exp", nm)
-                        if not os.path.exists(mp1) and not os.path.exists(mp2):
-                            errors.append(f"Missing movie exp/{nm}")
+                        if u in awake_movies.MOD_MOVIES:
+                            mp1 = os.path.join(mod_dir, "exp", nm)
+                            mp2 = os.path.join(pc_dir, "exp", nm)
+                            if not os.path.exists(mp1) and not os.path.exists(mp2):
+                                errors.append(f"Missing movie exp/{nm}")
 
     print(f"  Audited {len(ported_ins):,} ported instructions + 15 Master Dispatcher hooks:")
     print(f"    Resolved {len(checked_gfx)} unique graphics, {len(checked_bgm)} BGMs, {len(checked_se)} SEs, {len(checked_voi)} Voices, {len(checked_mov)} Movies")
 
     # ================================================================
-    # 5. Verify POP22.DAT Movie Format via ffprobe
+    # 5. Verify all mod-only movie formats via ffprobe
     # ================================================================
-    print("\n=== [5/6] Verifying exp/POP22.DAT Video/Audio Codecs ===")
-    pop22 = os.path.join(mod_dir, "exp", "POP22.DAT")
-    r = subprocess.run(["ffprobe", "-hide_banner", pop22], capture_output=True, text=True)
-    probe = r.stderr
-    assert "mpeg1video" in probe and "800x600" in probe, f"POP22.DAT video not 800x600 mpeg1video:\n{probe}"
-    assert "mp2" in probe and "44100 Hz" in probe, f"POP22.DAT audio not 44100Hz mp2:\n{probe}"
-    print("  PASS: exp/POP22.DAT verified as 800x600 mpeg1video + 44100Hz stereo mp2 (exact PC format)!")
+    print("\n=== [5/6] Verifying Awake Movie Video/Audio Codecs ===")
+    for filename in awake_movies.MOD_MOVIES:
+        path = os.path.join(mod_dir, "exp", filename)
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", path],
+            capture_output=True, text=True, check=True,
+        )
+        probe = json.loads(result.stdout)
+        video = next(s for s in probe["streams"] if s["codec_type"] == "video")
+        audio = next(s for s in probe["streams"] if s["codec_type"] == "audio")
+        assert (video["codec_name"], video["width"], video["height"]) == ("mpeg1video", 800, 600), filename
+        assert (audio["codec_name"], int(audio["sample_rate"]), audio["channels"]) == ("mp2", 44100, 2), filename
+        duration = float(probe["format"]["duration"])
+        minimum_duration = {"POP22.DAT": 160, "POP23.DAT": 140, "POP24.DAT": 115}[filename]
+        assert duration >= minimum_duration, f"Truncated movie {filename}: {duration:.2f}s"
+        print(f"  PASS: exp/{filename}: 800x600 MPEG-1 + 44100Hz stereo MP2, {duration:.2f}s")
 
     # ================================================================
     # 6. Verify battle1.dat (PRSM), Playable Ally Ruah (ch = 9), & All 14 Ruah Battles
@@ -521,6 +541,19 @@ def main():
         for marker in (b"ph2chr09_Layer1", b"ph2chr09.tga", b"ph2chr09_face.tga", b"ph2chr09_hair.tga"):
             if marker not in ruah_dmo_b:
                 errors.append(f"Official PS2 Ruah marker {marker!r} missing in ph2chr09.dmo")
+
+    ruah_def_key = "data/char/character/ruah/ph2chr09.def"
+    if ruah_def_key in b1_idx:
+        ruah_def = read_prsm_member(b1_path, b1_idx[ruah_def_key], dec_tbl)
+        without_crlf = ruah_def.replace(b"\r\n", b"")
+        if b"\n" in without_crlf or b"\r" in without_crlf:
+            errors.append("Ruah DEF has non-CRLF line endings: PC comments can hide EVENT_END and freeze skills")
+        for motion in ("LUAH_AK_01", "LUAH_SP_01", "LUAH_SP_02", "BOUGYO", "JOUKYU_BOUGYO"):
+            match = re.search(
+                rb"motion\s+" + motion.encode("ascii") + rb"\s*\{(.*?)\r\n\}", ruah_def, re.S,
+            )
+            if match is None or not re.search(rb"event\s+VOID\s+\d+\s+\d+\s+EVENT_END\b", match.group(1)):
+                errors.append(f"Ruah motion {motion} is missing its battle completion event")
 
     # Check Prism #225 & Ruah ally/boss skills 5000..5008 in prism.txt
     ptxt = read_prsm_member(b1_path, b1_idx["prism.txt"], dec_tbl).decode("cp932", "replace")

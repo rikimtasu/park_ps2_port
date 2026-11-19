@@ -25,7 +25,8 @@ PS2_MOVIE_MAP = {
     (10, 0): "POP18.DAT",
     (11, 0): "POP19.DAT",
     (12, 0): "POP20.DAT",
-    (14, 0): "POP07.DAT",   # Awake OP2 -> PC OP2 / POP07 (or can extract MOV[14])
+    (13, 0): "POP23.DAT",   # Awake OP1; keep all original PC movie files intact
+    (14, 0): "POP24.DAT",   # Awake OP2
     (15, 0): "POP21.DAT",   # PS2 ED1 (extracted to exp/POP21.DAT)
     (16, 0): "POP22.DAT",   # PS2 ED2 (Ruah ending credits! extracted to exp/POP22.DAT)
     (17, 0): "POP00.DAT",
@@ -252,7 +253,7 @@ def main():
             return ensure_fn_id(stem)
         elif hi == 0x70:
             pop_name = PS2_MOVIE_MAP[(lo, mid)]
-            if lo in (15, 16):
+            if lo in (13, 14, 15, 16):
                 needed_movs[lo] = pop_name
             return ensure_fn_id(pop_name)
         elif hi == 0x80:

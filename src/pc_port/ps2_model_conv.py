@@ -889,6 +889,10 @@ def build_ruah_def(
         motion_Texts.append(f"motion {mname} {{\r\n{body.strip()}\r\n}}")
 
     full_def = "\r\n".join(parts_lines) + "\r\n\r\n" + "\r\n\r\n".join(motion_Texts) + "\r\n"
+    # The PC line reader (0x48FEC0) recognizes only CRLF. Bare LF inside
+    # generated blocks lets // comments swallow their remaining events,
+    # including EVENT_END, leaving the battle waiting indefinitely.
+    full_def = full_def.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
     return full_def.encode("cp932", "replace")
 
 

@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 import common
+import awake_movies
 
 # 6 New PS2 Awake BGM tracks added to Music Mode Page 4 (M14..M19, track IDs 74..79)
 OMAKE_NEW_BGMS = [
@@ -166,6 +167,53 @@ OMAKE_REQUIRED_PAGS = {
 }
 
 
+def patch_movie_theater(pc_sf_orig, ensure_fn_id, patch_u32, emit):
+    """Keep the original grid and add Ruah ED2 plus two Awake replay buttons."""
+    movie_cb20_ip = emit([
+        (0x02000103, [0x30000000, 20]),
+        (0x02000103, [0x20000226, 0x30000000]),
+        (0x01000401, []),
+    ])
+    movie_reg19_20_ip = emit([
+        (0x0102010A, [3, 19, 462, 402, 573, 497, 1, 0x8743, 0x42FAF4]),
+        (0x0102010A, [3, 20, 579, 402, 690, 497, 1, ensure_fn_id("SYS_OV_B20"), movie_cb20_ip]),
+        (0x01000202, [0x42F37C]),
+    ])
+    assert struct.unpack_from("<I", pc_sf_orig, 0x42F354)[0] == 0x0102010A
+    struct.pack_into("<10I", pc_sf_orig, 0x42F354,
+                     0x01000202, movie_reg19_20_ip, *([0x01000202, 0x42F37C] * 4))
+
+    # Use the existing footer group (5), not grid slots above the PC limit.
+    # Its existing enable/cleanup instructions also cover these new buttons.
+    replay_reg_ops = [(0x0102010A, [5, 1, 323, 564, 478, 590, 1, 34345, 0x42F4F4])]
+    for slot, (_, _, choice, button, (x, y)) in enumerate(awake_movies.OPENINGS, start=2):
+        callback = emit([
+            (0x02000103, [0x30000000, choice]),
+            (0x02000103, [0x20000226, 0x30000000]),
+            (0x01000401, []),
+        ])
+        replay_reg_ops.append((0x0102010A, [5, slot, x, y, x + 247, y + 31, 1, ensure_fn_id(button), callback]))
+    replay_reg_ops.append((0x01000202, [0x42F3B8]))
+    replay_reg_ip = emit(replay_reg_ops)
+    assert struct.unpack_from("<I", pc_sf_orig, 0x42F390)[0] == 0x0102010A
+    struct.pack_into("<10I", pc_sf_orig, 0x42F390,
+                     0x01000202, replay_reg_ip, *([0x01000202, 0x42F3B8] * 4))
+
+    dispatch_ip = len(pc_sf_orig)
+    movies = [(20, "POP22.DAT")] + [(movie[2], movie[1]) for movie in awake_movies.OPENINGS]
+    for choice, filename in movies:
+        next_ip = len(pc_sf_orig) + 13 * 4
+        emit([
+            (0x02000103, [0x30000001, choice]),
+            (0x02010003, [0x30000001, 0x30000000]),
+            (0x01000703, [0x30000001, next_ip]),
+            (0x05030002, [ensure_fn_id(filename)]),
+            (0x01000202, [0x42F8F8]),
+        ])
+    emit([(0x01000202, [0x42F8F8])])
+    patch_u32(0x42F8DC + 8, 0x42F8F8, dispatch_ip, "Movie Mode play Ruah ED2 / Awake OP1 / Awake OP2")
+
+
 def patch_omake_scripts(
     pc_sf_orig: bytearray,
     ensure_fn_id,
@@ -189,8 +237,10 @@ def patch_omake_scripts(
         ensure_fn_id(bgm_stem)
 
     needed_movs[16] = "POP22.DAT"
-    pop22_fn = ensure_fn_id("POP22.DAT")
-    ov_b20_fn = ensure_fn_id("SYS_OV_B20")
+    ensure_fn_id("POP22.DAT")
+    ensure_fn_id("SYS_OV_B20")
+    for movie_index, filename, _, _, _ in awake_movies.OPENINGS:
+        needed_movs[movie_index] = filename
 
     for _, _, _, thumb_name, _, var_list in OMAKE_NEW_CGS:
         ensure_fn_id(thumb_name)
@@ -272,39 +322,9 @@ def patch_omake_scripts(
     patch_u32(0x40F284 + 8, 0x40F2A4, music_p4_play_ip, "Music Mode Page 4 play M14..M19")
 
     # ================================================================
-    # B. MOVIE MODE (MOVIE THEATER) EXPANSION (Slot 20: POP22.DAT)
+    # B. MOVIE MODE: Ruah ending in slot 20; Awake openings in the footer
     # ================================================================
-    movie_cb20_ip = emit([
-        (0x02000103, [0x30000000, 20]),
-        (0x02000103, [0x20000226, 0x30000000]),
-        (0x01000401, []),
-    ])
-    movie_reg19_20_ip = emit([
-        (0x0102010A, [3, 19, 462, 402, 573, 497, 1, 0x8743, 0x42FAF4]),
-        (0x0102010A, [3, 20, 579, 402, 690, 497, 1, ov_b20_fn, movie_cb20_ip]),
-        (0x01000202, [0x42F37C]),
-    ])
-    # Replace 10-word button 19 registration at 0x42f354..0x42f37c with five 2-word JMPs
-    assert struct.unpack_from("<I", pc_sf_orig, 0x42F354)[0] == 0x0102010A
-    jmp_words = [
-        0x01000202, movie_reg19_20_ip,
-        0x01000202, 0x42F37C,
-        0x01000202, 0x42F37C,
-        0x01000202, 0x42F37C,
-        0x01000202, 0x42F37C,
-    ]
-    struct.pack_into("<10I", pc_sf_orig, 0x42F354, *jmp_words)
-    print(f"  PATCH 0x42f354 (Movie Mode register button 20): -> 0x{movie_reg19_20_ip:06x}")
-
-    movie_play20_ip = len(pc_sf_orig)
-    emit([
-        (0x02000103, [0x30000001, 20]),
-        (0x02010003, [0x30000001, 0x30000000]),
-        (0x01000703, [0x30000001, 0x42F8F8]),
-        (0x05030002, [pop22_fn]),
-        (0x01000202, [0x42F8F8]),
-    ])
-    patch_u32(0x42F8DC + 8, 0x42F8F8, movie_play20_ip, "Movie Mode play slot 20 -> POP22.DAT")
+    patch_movie_theater(pc_sf_orig, ensure_fn_id, patch_u32, emit)
 
     # ================================================================
     # C. CG GALLERY (ART GALLERY) EXPANSION (15 New CG Sets across Pages 4, 7, 8, 9C)
@@ -405,6 +425,10 @@ def patch_omake_scripts(
 
     emit([(0x01000202, [0x42EF9C])])
     patch_u32(0x42E59C + 8, 0x42EF9C, cg_viewer_ext_ip, "CG Gallery Viewer dispatch 15 new CG sets")
+    awake_movies.patch_startup_movie(pc_sf_orig, ensure_fn_id(awake_movies.OPENINGS[0][1]))
+    awake_movies.patch_title_idle_movies(
+        pc_sf_orig, tuple(ensure_fn_id(name) for name in awake_movies.TITLE_IDLE_MOVIES),
+    )
 
 
 def _load_vanilla_epa(name: str) -> Image.Image:
@@ -520,6 +544,22 @@ def _render_music_titles_on_sheet(sheet: Image.Image) -> Image.Image:
     return canvas
 
 
+def _render_movie_button(title: str) -> Image.Image:
+    """Use the existing 247x31 music-button animation's normal/hover UVs."""
+    sheet = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    font = ImageFont.truetype(r"C:\Windows\Fonts\msgothic.ttc", 17)
+    for y, border in ((318, (70, 70, 85, 255)), (349, (65, 170, 240, 255))):
+        tile = Image.new("RGBA", (247, 31), (20, 30, 50, 235))
+        draw = ImageDraw.Draw(tile)
+        draw.rounded_rectangle((0, 0, 246, 30), radius=4, outline=border, width=2)
+        box = draw.textbbox((0, 0), title, font=font)
+        x = (247 - (box[2] - box[0])) // 2 - box[0]
+        ty = (31 - (box[3] - box[1])) // 2 - box[1]
+        draw.text((x, ty), title, font=font, fill=(245, 250, 255, 255))
+        sheet.alpha_composite(tile, (256, y))
+    return sheet
+
+
 def build_omake_graphics(
     pc_gb_orig: bytearray,
     gb_seen: set,
@@ -613,6 +653,10 @@ def build_omake_graphics(
     ov20_im = _make_2state_thumb(thumb_tmpl, get_epa_im("PSED_8_00A.epa"))
     save_epa("sys_ov_thum20.EPA", ov20_im)
     ov20_im.save(os.path.join(preview_dir, "sys_ov_thum20.png"))
+    for number, (_, _, _, button, _) in enumerate(awake_movies.OPENINGS, start=1):
+        image = _render_movie_button(f"Awake OP{number}")
+        save_epa(f"{button.lower()}.EPA", image)
+        image.save(os.path.join(preview_dir, f"{button.lower()}.png"))
 
     # 6. Append the 22 new 1092-byte PJGraphicDef records to graphic.bin
     # Index vanilla slot templates so each button gets its exact screen (x, y) at 1028..1036
@@ -637,10 +681,12 @@ def build_omake_graphics(
 
     # Movie Mode Slot 20: clone from SYS_OV_B19 and set screen (x, y) = (579, 402)
     add_gb(vanilla_gb["SYS_OV_B19"], "sys_ov_b20", "sys_ov_thum20.EPA", "sys_ov_b.bnm", xy=(579, 402))
+    for _, _, _, button, xy in awake_movies.OPENINGS:
+        add_gb(vanilla_gb["SYS_OM_P1M14"], button, f"{button.lower()}.EPA", "sys_om_p1m14.bnm", xy=xy)
 
     # CG Gallery 15 new thumbnails: clone from SYS_OC_THUMB01{slot_num:02d} (exact screen x,y for slot_num!)
     for _, slot_num, _, thumb_name, _, _ in OMAKE_NEW_CGS:
         tmpl_c = vanilla_gb[f"SYS_OC_THUMB01{slot_num:02d}"]
         add_gb(tmpl_c, thumb_name, f"{thumb_name.lower()}.EPA", "sys_oc_thumb.bnm")
 
-    print(f"  Added 7 expanded Omake base plates, 16 new 2-state thumbnails, and 22 graphic.bin records!")
+    print(f"  Added 7 expanded Omake base plates, 16 thumbnails, 2 Awake movie buttons, and 24 graphic.bin records!")

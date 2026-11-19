@@ -1,3 +1,4 @@
+import argparse
 import concurrent.futures
 import json
 import os
@@ -9,6 +10,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
+import awake_movies
 
 STAGED_DIR = os.path.join(common.WORK_DIR, "staged")
 AUDIO_DIR = os.path.join(STAGED_DIR, "audio")
@@ -56,6 +58,9 @@ def convert_adx_bytes_to_ogg(adx_bytes: bytes, out_path: str, quality: int = 5, 
 
 
 def main():
+    ap = argparse.ArgumentParser(description="Port PS2 audio and movies to the PC mod.")
+    ap.add_argument("--movies-only", action="store_true", help="Transcode movies without rebuilding audio")
+    args = ap.parse_args()
     t0 = time.time()
     for d in (VOI_DIR, SE_DIR, BGM_DIR, EXP_DIR):
         os.makedirs(d, exist_ok=True)
@@ -64,6 +69,19 @@ def main():
         man = json.load(f)
 
     iso = common.IsoReader()
+    if args.movies_only:
+        try:
+            awake_movies.transcode_movies(iso, man["movs"], EXP_DIR)
+        finally:
+            iso.close()
+        audio_manifest_path = os.path.join(STAGED_DIR, "audio_manifest.json")
+        if os.path.exists(audio_manifest_path):
+            with open(audio_manifest_path, "r", encoding="utf-8") as f:
+                audio_manifest = json.load(f)
+            audio_manifest["mov_files"] = sorted(man["movs"].values())
+            with open(audio_manifest_path, "w", encoding="utf-8") as f:
+                json.dump(audio_manifest, f, indent=2, ensure_ascii=False)
+        return
     iso_lock = threading.Lock()
     workers = min(16, max(4, os.cpu_count() or 8))
 
@@ -155,45 +173,9 @@ def main():
                 print(f"  Voices: {voi_done}/{len(voi_items)} ({time.time() - t0:.1f}s)")
 
     # ================================================================
-    # 4. Transcode Movies (PA_MOV.DAT[16] -> exp/POP22.DAT) to PC MPEG-1+MP2
+    # 4. Transcode Awake openings and Ruah's ending to PC MPEG-1+MP2
     # ================================================================
-    for mov_id_s, pop_name in sorted(man["movs"].items(), key=lambda kv: int(kv[0])):
-        mov_id = int(mov_id_s)
-        out_mov = os.path.join(EXP_DIR, pop_name)
-        if os.path.exists(out_mov) and os.path.getsize(out_mov) > 1024 * 1024:
-            print(f"=== Movie {pop_name} already transcoded ({os.path.getsize(out_mov):,} bytes) ===")
-            continue
-        print(f"=== Extracting & transcoding PA_MOV.DAT[{mov_id}] -> {pop_name} (PC MPEG-1 800x600 + MP2) ===")
-        raw_sfd = os.path.join(EXP_DIR, f"_tmp_mov_{mov_id}.sfd")
-        base, entries = iso.get_flk_table("PA_MOV.DAT")
-        o, s = entries[mov_id]
-        iso.fh.seek(base + o)
-        rem = s
-        with open(raw_sfd, "wb") as f:
-            while rem > 0:
-                chunk = iso.fh.read(min(rem, 4 * 1024 * 1024))
-                if not chunk:
-                    break
-                f.write(chunk)
-                rem -= len(chunk)
-        tmp_out = out_mov + ".tmp"
-        cmd = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-i", raw_sfd,
-            "-vf", "yadif,scale=800:600:flags=lanczos",
-            "-c:v", "mpeg1video", "-b:v", "7500k", "-maxrate", "8500k", "-bufsize", "2048k",
-            "-r", "30000/1001", "-pix_fmt", "yuv420p",
-            "-c:a", "mp2", "-ar", "44100", "-ac", "2", "-b:a", "192k",
-            "-f", "mpeg", tmp_out
-        ]
-        res = subprocess.run(cmd, capture_output=True)
-        os.remove(raw_sfd)
-        if res.returncode != 0:
-            if os.path.exists(tmp_out):
-                os.remove(tmp_out)
-            raise RuntimeError(f"Movie transcode failed: {res.stderr.decode('utf-8', 'replace')}")
-        os.replace(tmp_out, out_mov)
-        print(f"  Transcoded {pop_name}: {os.path.getsize(out_mov):,} bytes ({time.time() - t0:.1f}s)")
+    awake_movies.transcode_movies(iso, man["movs"], EXP_DIR)
 
     iso.close()
 

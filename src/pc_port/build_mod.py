@@ -8,6 +8,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
+import awake_movies
 
 STAGED_DIR = os.path.join(common.WORK_DIR, "staged")
 GFX_DIR = os.path.join(STAGED_DIR, "gfx")
@@ -22,7 +23,7 @@ MOD_FILES = (
     "ruah_voice.dat",
     "battle1.dat",
     "P_ARK201_Ruah.exe",
-    os.path.join("exp", "POP22.DAT"),
+    *(os.path.join("exp", name) for name in awake_movies.MOD_MOVIES),
 )
 
 ARCHIVE_INI_CONTENT = (
@@ -103,7 +104,7 @@ def pack_mod(out_dir: str):
     common.write_gamedat_pac2(voi_dat_path, voi_files)
     print(f"  Wrote ruah_voice.dat: {len(voi_files)} files, {os.path.getsize(voi_dat_path):,} bytes ({time.time() - t0:.1f}s)")
 
-    # 3. Copy exp/POP22.DAT
+    # 3. Copy mod-only movies
     for mov_fn in aud_man["mov_files"]:
         src = os.path.join(EXP_DIR, mov_fn)
         dst = os.path.join(out_dir, "exp", mov_fn)

@@ -12,22 +12,26 @@ This repository contains two related projects built from retail *Prism Ark* (`P_
 
 Build order & responsibilities:
 - `src/pc_port/common.py` — Shared ISO (`IsoReader`), `ZZZ\0` / `TIM2` / `PTL\0` decoders, `EPA` encoder/decoder, `GAMEDAT PAC2` writer, `PRSM` encryptor/writer, `textdata.bin` cryptor, and `zzz_helper.dll` loader.
-- `src/pc_port/port_audio.py` — Extracts PS2 `PA_BGM`, `PA_SE`, and `PA_VOI` (`ADX` → `44100 Hz` OGG Vorbis via `ffmpeg`), transcodes PS2 OP2 (`PSS` → `exp/POP22.DAT` `800×600` MPEG-1 + 44.1kHz MP2), and packs `ruah_voice.dat`.
+- `src/pc_port/port_audio.py` — Extracts PS2 `PA_BGM`, `PA_SE`, and `PA_VOI` (`ADX` → `44100 Hz` OGG Vorbis via `ffmpeg`) and delegates movie conversion to `awake_movies.py`. `--movies-only` converts the selected movies without rebuilding audio.
+- `src/pc_port/awake_movies.py` — Converts `PA_MOV.DAT[13]` (Awake OP1) to `exp/POP23.DAT`, `[14]` (Awake OP2) to `exp/POP24.DAT`, and `[16]` (Ruah ED2) to `exp/POP22.DAT`. All three use `800×600` MPEG-1 video and 44.1kHz stereo MP2 audio. Hooks startup at `scenario.dat+0x1C8` and the title screen at `+0x4EC`, `+0x770`, and `+0x74C`; local variables `0x100003D9` and `0x100003DA` hold the wait counter and next movie index.
 - `src/pc_port/port_graphics.py` — Extracts/upscales (`640×480` → `800×600`, `640×450` → `800×600` etc.) PS2 CGs, `PA08_*` Ruah sprites,Prism #225, `0.75s` UI plates, and camp/battle loading assets (`TIM2`/`PTL`/`PAG`) to PC `.epa` / `.anm`.
-- `src/pc_port/omake_assets.py` — Builds expanded Omake plates (`sys_oc_base04/07/08/09c.EPA`, `sys_ov_base01.EPA`, `sys_m_base4.EPA`, `sys_m_files05.EPA`) and 22 `graphic.bin` thumbnail/button entries cleanly within valid Omake sprite limits.
+- `src/pc_port/omake_assets.py` — Builds expanded Omake plates (`sys_oc_base04/07/08/09c.EPA`, `sys_ov_base01.EPA`, `sys_m_base4.EPA`, `sys_m_files05.EPA`) and 24 `graphic.bin` thumbnail/button entries. Awake replay buttons use footer group 5, slots 2–3, so the existing enable/cleanup code handles them without increasing the movie grid beyond 20 slots.
 - `src/pc_port/port_scripts.py` — Decompiles/translates PS2 `PA_FILE.DAT` event scripts & choice opcodes to PC `scenario.dat`, `textdata.bin`, `filename.dat`, `graphic.bin`, `BGM.ini`, hooking the 15 Master Dispatcher entry points + 10 Omake hooks, and packs `ruah_mod.dat`.
 - `src/pc_port/ps2_model_conv.py` — Converts Ruah's official PS2 `PA_BTL.DAT[67]` (`00_LUAH_ph2chr09.def` inner `FLK`: `MDP` skeletal mesh, 3 `TIM2` textures, `DEF`) and 611-entry motion bank `PA_BTL.DAT[108..719]` (59 unique `MOT\x00` clips) into PC `data/char/character/ruah/ph2chr09.{dmo,def,cmn,tga,_face.tga,_hair.tga}`.
-- `src/pc_port/ruah_battle_assets.py` — Generates `ch_sheet.txt` (`[ルーア]`), `animelist.txt` (`20000..20002`), 6 battle/camp UI `.tga`s (`bt_v09`, `bt_a09`, `cut_09`, `bte_09a`, `bte_09b`, `st_e09`, `ca_b09`, `ca_c09`), 104 battle voice `.ogg`s (`B_RUA_0000..0103.ogg` at `44100 Hz` mono), `common.se`, and `random.se`.
+- `src/pc_port/ruah_battle_assets.py` — Generates `ch_sheet.txt` (`[ルーア]`), `animelist.txt` (`20000..20002`), 8 battle/camp UI `.tga`s (`bt_v09`, `bt_a09`, `cut_09`, `bte_09a`, `bte_09b`, `st_e09`, `ca_b09`, `ca_c09`), 104 battle voice `.ogg`s (`B_RUA_0000..0103.ogg` at `44100 Hz` mono), `common.se`, and `random.se`.
 - `src/pc_port/port_battles.py` — Decompiles PS2 `FED`/`MCD`/`MPD` (`PA_FILE.DAT[318..320]`) for all 14 Ruah battles (`62, 808, 809, 810, 1810, 811, 1811, 2811, 3811, 812, 1812, 813, 1813, 2813`), embeds official PS2 loading screens (`PA_FILE.DAT[525, 497, 474, 475]`), `prism.txt` (`PR = 225`, `5000..5008`), `prismlist.txt`, and writes `pc_ruah_mod/battle1.dat`.
 - `src/pc_port/patch_exe.py` — Appends a `16 KB` RWX `.ruah` PE section (`VA 0x0087A000`) to a copy of UPX-packed `P_ARK201.exe`, writes `pc_ruah_mod/P_ARK201_Ruah.exe` (`647,168` bytes), and applies 62 runtime byte patches + trampolines (`_ruah_init` at `0x0087A000` after UPX decompression at `0x008778B3` before `OEP 0x004EA43A`).
 - `src/pc_port/build_mod.py` — Master rebuild + `archive.ini` generator + install helper.
 - `src/pc_port/make_test_saves.py` — Builds isolated battle & Ruah-route test saves (`save005..save008.sav` + `thumb005..thumb008.gra`) with per-save EXP floor `30000` (`LV 40`) in `var[0x100003DC]` (`0x3E44` in save -> `0x0057593C` in battle RAM).
-- `src/pc_port/verify_mod.py` — 7-suite offline verifier covering non-destructive isolation, `archive.ini` VFS mount order, EPAs/ANMs/OGGs/`graphic.bin`, all `196,611` ported `scenario.dat` instructions + `0x43fda1` linear scan, `exp/POP22.DAT` codecs, `battle1.dat` (`PRSM` decrypt + battle script/3D model/voice checks), and `P_ARK201_Ruah.exe` boot simulation (`62` patches).
+- `src/pc_port/verify_mod.py` — 7-suite offline verifier covering non-destructive isolation, `archive.ini` VFS mount order, EPAs/ANMs/OGGs/`graphic.bin`, all `196,685` ported `scenario.dat` instructions + `0x43fda1` linear scan, codecs and durations for `exp/POP22.DAT` through `exp/POP24.DAT`, `battle1.dat` (`PRSM` decrypt + battle script/3D model/voice checks), and `P_ARK201_Ruah.exe` boot simulation (`62` patches).
+
+For an existing staged build, opening work requires `port_scripts.py` → `port_graphics.py` → `port_audio.py --movies-only` → `build_mod.py --verify --install`. Set `PRISM_ARK_ISO` and `PRISM_ARK_PC_DIR` for the individual converters. The README has the commands; a clean checkout requires the full `build_mod.py --all` pipeline first.
 
 ### Output Package (`pc_ruah_mod/`)
 - `P_ARK201_Ruah.exe` (`647,168` B) — Patched launcher; original `P_ARK201.exe` is untouched.
 - `archive.ini` — Prepends `ruah_mod.dat` and `ruah_voice.dat` before vanilla `archive*.dat` / `bgm.dat` / `se.dat` / `voice*.dat`.
-- `ruah_mod.dat` (`299,584,889` B, `1,463` entries), `ruah_voice.dat` (`287,065,100` B, `9,156` entries), `battle1.dat` (`30,286,090` B, `186` entries, mounted automatically by `P_ARK201.exe`), `exp/POP22.DAT` (`160,178,176` B).
+- `ruah_mod.dat` (`299,593,237` B, `1,465` entries), `ruah_voice.dat` (`287,065,100` B, `9,156` entries), `battle1.dat` (`30,286,479` B, `186` entries, mounted automatically by `P_ARK201.exe`).
+- Movies: `exp/POP22.DAT` (Ruah ED2, `160,178,176` B), `exp/POP23.DAT` (Awake OP1, `115,877,888` B), `exp/POP24.DAT` (Awake OP2, `94,109,696` B).
 - `test_saves/save005..save008.sav` & `thumb005..thumb008.gra`.
 
 ## A.2 Reverse-Engineered PC Engine & Mod Internals
@@ -50,8 +54,12 @@ Build order & responsibilities:
 
 ## A.3 Current Verification & Open Testing Items
 
-- **Automated Verification (`verify_mod.py`)**: All **7 verification suites pass (`0` errors)** as of commit `6ea5950`.
-- **Installed Target**: `pc_ruah_mod/battle1.dat` (`30,286,090` B) is installed & SHA256-verified in `d:\Video_Game\Visual Novel\pajama\p_ark201\battle1.dat`.
+- **Opening playback**: Launch `P_ARK201_Ruah.exe` to play Awake OP1 after the publisher logo. After 30 seconds at the title screen, the rotation is Awake OP2 → Original PC OP1 (`POP00.DAT`) → Original PC OP2 (`POP07.DAT`) → Awake OP1, then repeats. Each movie returns to the title screen for another 30-second wait. Recreating the title buttons resets the wait; movie index advances before playback, so skipping a movie advances the sequence too. OMAKE → MOVIE THEATER also has Awake OP1 and Awake OP2 replay buttons below the grid.
+- **Opening checks**: `python -m unittest discover -s src/pc_port -p "test_*.py" -v` covers the startup hook, rotation order, timer reset, menu-click priority, replay dispatch, and the Ruah DEF line-ending fix. Both converted opening files decode without errors. The Movie Theater buttons have been checked visually in-game; the complete idle rotation still needs a live playtest.
+- **Ruah skill freeze**: `build_ruah_def` now normalizes all lines to CRLF. The PC line reader recognizes only CRLF; mixed line endings made comments hide the remaining events, including `EVENT_END`. The user reports that the skill freeze is fixed. `verify_mod.py` rejects non-CRLF Ruah DEF output.
+
+- **Automated Verification (`verify_mod.py`)**: The current local build passes all **7 verification suites (`0` errors)** and **13 source regression tests**, including the opening work.
+- **Local test installation**: `d:\Video_Game\Visual Novel\pajama\p_ark201\` contains the updated override archive, both Awake openings, and the corrected `battle1.dat`. Original game files and saves were left unchanged. This is a local test path; use the README's installation instructions for another machine.
 - **Pending Live In-Game Playtest**:
   1. Launch `P_ARK201_Ruah.exe` and load battle test saves (`save006` / `save007` / `save008` in slots 7–9) to visually verify Ruah's real PS2 3D model (`ph2chr09.dmo` + `ph2chr09.tga`, `ph2chr09_face.tga`, `ph2chr09_hair.tga`) in Camp UI, Status screen, and active battle.
   2. Test Ruah's custom skills in battle (`PR 5000/5003/5006` → `20000 LUAH_AK_01`, `PR 5001/5004` → `20001 LUAH_SP_01`, `PR 5007` → `20002 LUAH_SP_02`, `PR 5002/5005` → `BOUGYO`, `PR 5008` → `heal2`) and verify weapon trail attachment (`weapon_top`/`weapon_end`) and `B_RUA_*` battle voices.
