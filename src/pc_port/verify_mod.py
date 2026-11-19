@@ -434,6 +434,23 @@ def main():
                     fp = f"data/mapscript/map{mbid % 100:02d}/field_{mbid:04d}_{mstg:03d}.txt"
                     if fp not in battle_vfs:
                         errors.append(f"Missing field {fp} referenced by {ent[0]}")
+            # For field_*.txt with #character.txt: verify EVERY character/chdef source is defined inside #character.txt!
+            if "/field_" in k and "#character.txt" in txt.lower():
+                hdr_part, char_part = re.split(r"#character\.txt", txt, maxsplit=1, flags=re.I)
+                defined_units = set()
+                for blk in re.split(r"(?=^\[)", char_part, flags=re.M):
+                    m1 = re.search(r"^\s*ch\s*=\s*(\d+)", blk, re.M | re.I)
+                    m2 = re.search(r"^\s*number\s*=\s*(\d+)", blk, re.M | re.I)
+                    if m1 and m2:
+                        defined_units.add((int(m1.group(1)), int(m2.group(1))))
+                chdef_map = {}
+                for m in re.finditer(r"^\s*chdef\s*=\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", hdr_part, re.M | re.I):
+                    chdef_map[int(m.group(1))] = (int(m.group(2)), int(m.group(3)))
+                for m in re.finditer(r"^\s*character\s*=\s*(\d+)\s*,\s*(\d+)", hdr_part, re.M | re.I):
+                    c_id, c_num = int(m.group(1)), int(m.group(2))
+                    lookup = chdef_map.get(c_id, (c_id, c_num))
+                    if lookup not in defined_units:
+                        errors.append(f"Unit {lookup} (for ch={c_id}) missing in #character.txt of {ent[0]}!")
 
     if ally_ruah_fields == 0:
         errors.append("No playable ally Ruah (character = 9) found in any battle1.dat field file!")

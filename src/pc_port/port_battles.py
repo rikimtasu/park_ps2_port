@@ -521,6 +521,20 @@ def main():
         embedded_seen = set()
         m_dir = bid % 100
 
+        # Whenever a field embeds #character.txt, P_ARK201.exe skips char_00XX.txt and ONLY
+        # searches #character.txt! So embed ALL non-clone units + ALL chdef source units!
+        def ensure_embedded(orig_ch: int, out_ch: int, num: int, tpl_map: dict):
+            if (out_ch, num) in embedded_seen:
+                return
+            u = mcd_map.get((orig_ch, num))
+            assert u is not None, f"Missing PS2 MCD record for ch={orig_ch}, num={num} in bid={bid} stg={stg}"
+            embedded_seen.add((out_ch, num))
+            ublk = format_unit_block(u, out_ch, tpl_map)
+            if m_dir == 62:
+                map62_units[(out_ch, num)] = ublk
+            else:
+                embedded_units.append(ublk)
+
         for ch, num, x, y, delay in raw_chs:
             u = mcd_map.get((ch, num))
             use_tpl_map = templates
@@ -540,16 +554,14 @@ def main():
 
             final_chs.append((out_ch, num, x, y, delay))
 
-            # If unit is not a chdef clone and not in PC char_00XX.txt, embed its exact MCD definition!
             is_clone = any(d[0] == ch for d in raw_defs)
-            if not is_clone and (out_ch, num) not in pc_char_units.get(m_dir, set()):
-                if u is not None and (out_ch, num) not in embedded_seen:
-                    embedded_seen.add((out_ch, num))
-                    ublk = format_unit_block(u, out_ch, use_tpl_map)
-                    if m_dir == 62:
-                        map62_units[(out_ch, num)] = ublk
-                    else:
-                        embedded_units.append(ublk)
+            if not is_clone:
+                ensure_embedded(ch, out_ch, num, use_tpl_map)
+
+        for dst, src, num in raw_defs:
+            if dst == 9 or src == 9:
+                continue
+            ensure_embedded(src, src, num, templates)
 
         lines = [
             title,
