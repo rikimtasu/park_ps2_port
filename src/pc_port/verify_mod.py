@@ -224,7 +224,7 @@ def main():
         scan_pos += nw * 4
     if scan_pos != len(sf):
         errors.append(f"0x43fda1 linear scan ended at 0x{scan_pos:x} != len(sf) 0x{len(sf):x}")
-    for test_mid in (67567, 93584, 93888, 95173):
+    for test_mid in (67567, 93588, 93888, 95173):
         if test_mid not in seen_msg_ids or seen_msg_ids[test_mid] < orig_sf_len:
             errors.append(f"Test save msg_id {test_mid} unreachable by 0x43fda1!")
 
@@ -475,10 +475,33 @@ def main():
         "data/campaign/ステータス/キャラ文字/st_e09.tga",
         "data/campaign/キャラクターシート/キャラクター/ca_b09.tga",
         "data/campaign/キャラクターシート/説明/ca_c09.tga",
+        "data/bg/BATTLE_LOADING/BWP_RUAH01.tga",
+        "data/bg/CAMP_LOADING/BATTLE_LOAD_0111b.tga",
+        "data/bg/CAMP_LOADING/BATTLE_LOAD_0811.tga",
+        "data/bg/CAMP_LOADING/BATTLE_LOAD_0812.tga",
     ]
     for req in req_ruah_battle_assets:
         if req.lower() not in b1_idx:
             errors.append(f"Missing required Playable Ruah asset in battle1.dat: {req}")
+
+    # Ensure official PS2 loading TGAs are 800x600 and fully opaque (min alpha == 255)
+    from PIL import Image
+    import io
+    for loading_tga in (
+        "data/bg/BATTLE_LOADING/BWP_RUAH01.tga",
+        "data/bg/CAMP_LOADING/BATTLE_LOAD_0111b.tga",
+        "data/bg/CAMP_LOADING/BATTLE_LOAD_0811.tga",
+        "data/bg/CAMP_LOADING/BATTLE_LOAD_0812.tga",
+    ):
+        kl = loading_tga.lower()
+        if kl in b1_idx:
+            raw_tga = read_prsm_member(b1_path, b1_idx[kl], dec_tbl)
+            im_tga = Image.open(io.BytesIO(raw_tga)).convert("RGBA")
+            a_min, a_max = im_tga.getextrema()[3]
+            if im_tga.size != (800, 600) or a_min != 255:
+                errors.append(
+                    f"Loading TGA {loading_tga} invalid: size={im_tga.size} alpha=({a_min},{a_max})"
+                )
 
     if "ch_sheet.txt" in b1_idx:
         ch_txt = read_prsm_member(b1_path, b1_idx["ch_sheet.txt"], dec_tbl).decode("cp932", "replace")
@@ -514,6 +537,8 @@ def main():
         errors.append("P_ARK201_Ruah.exe missing from mod directory!")
     else:
         applied = patch_exe.simulate_and_verify(exe_ruah, verbose=False)
+        if applied < 62:
+            errors.append(f"Expected >= 62 verified patches in P_ARK201_Ruah.exe, got {applied}")
         print(f"  PASS: P_ARK201_Ruah.exe verified ({os.path.getsize(exe_ruah):,} bytes, {applied} patches cleanly simulated)!")
 
     # ================================================================

@@ -418,6 +418,80 @@ def build_ruah_section_and_patches(exact_unp: bytes):
 
     tramp_cac_get = alloc_code(build_tramp_cac_get)
 
+    # 2h. Fix 0x04000102(-1) at 0x447730: only destroy script-owned objects (id > 0 and layer < 0x0A)
+    #     instead of calling 0x460EC0 which wipes system UI overlays (SYS_ADV_WINDOW, SYS_ADV_WIN_BTN1..7).
+    def build_tramp_free_script_objs(va: int) -> bytes:
+        out = bytearray()
+        out += b"\x53\x56\x57\x55"                  # push ebx; push esi; push edi; push ebp
+        out += b"\xA1" + struct.pack("<I", 0x66D220) # mov eax, [0x66D220]
+        out += b"\x85\xC0"                          # test eax, eax
+        jz_done1 = len(out); out += b"\x0F\x84\x00\x00\x00\x00"  # jz .done
+        out += b"\x8B\x35" + struct.pack("<I", 0x66CA18)         # mov esi, [0x66CA18]
+        out += b"\x85\xF6"                          # test esi, esi
+        jz_done2 = len(out); out += b"\x0F\x84\x00\x00\x00\x00"  # jz .done
+        out += b"\x4E"                              # dec esi
+
+        off_loop = len(out)
+        # Defensive clamp in case 0x460C20 shrinks count by >1:
+        out += b"\x3B\x35" + struct.pack("<I", 0x66CA18)         # cmp esi, [0x66CA18]
+        jb_ok = len(out); out += b"\x72\x00"                     # jb .in_bounds
+        out += b"\x8B\x35" + struct.pack("<I", 0x66CA18)         # mov esi, [0x66CA18]
+        jmp_next0 = len(out); out += b"\xEB\x00"                 # jmp .next
+
+        off_in_bounds = len(out)
+        out[jb_ok + 1] = off_in_bounds - (jb_ok + 2)
+        out += b"\x8B\x3C\xB5" + struct.pack("<I", 0x66CA20)     # mov edi, [esi*4 + 0x66CA20]
+        out += b"\x85\xFF"                          # test edi, edi
+        jz_next1 = len(out); out += b"\x74\x00"     # jz .next
+        out += b"\x83\x7F\x04\x00"                  # cmp dword ptr [edi+4], 0
+        jle_next2 = len(out); out += b"\x7E\x00"    # jle .next (skips id==0 & auto handles >=0x80000000)
+        out += b"\x83\x7F\x18\x0A"                  # cmp dword ptr [edi+0x18], 0x0A
+        jae_next3 = len(out); out += b"\x73\x00"    # jae .next (skips system UI layers >= 10)
+        out += b"\x57"                              # push edi
+        out += call_rel32(va + len(out), 0x460C20)  # call 0x460C20 (cdecl: free CGraphic* and remove)
+        out += b"\x83\xC4\x04"                      # add esp, 4
+        # After 4 pushes (+16), original [esp+0xE8C] (flags ptr) is at [esp+0xE9C]
+        out += b"\x8B\x94\x24" + struct.pack("<I", 0xE9C)        # mov edx, [esp+0xE9C]
+        out += b"\xF6\x02\x01"                      # test byte ptr [edx], 1
+        jz_next4 = len(out); out += b"\x74\x00"     # jz .next
+        out += b"\x8B\x0D" + struct.pack("<I", 0x7638C8)         # mov ecx, [0x7638C8]
+        out += b"\x85\xC9"                          # test ecx, ecx
+        jz_next5 = len(out); out += b"\x74\x00"     # jz .next
+        out += b"\x57"                              # push edi
+        out += call_rel32(va + len(out), 0x463590)  # call 0x463590 (__thiscall ret 4)
+
+        off_next = len(out)
+        for jp in (jmp_next0, jz_next1, jle_next2, jae_next3, jz_next4, jz_next5):
+            rel = off_next - (jp + 2)
+            assert -128 <= rel <= 127
+            out[jp + 1] = rel & 0xFF
+        out += b"\x4E"                              # dec esi
+        jns_loop = len(out); out += b"\x0F\x89\x00\x00\x00\x00"  # jns .loop
+        struct.pack_into("<i", out, jns_loop + 2, off_loop - (jns_loop + 6))
+
+        off_done = len(out)
+        for jp in (jz_done1, jz_done2):
+            struct.pack_into("<i", out, jp + 2, off_done - (jp + 6))
+        out += b"\x5D\x5F\x5E\x5B"                  # pop ebp; pop edi; pop esi; pop ebx
+        out += jmp_rel32(va + len(out), 0x447AE4)   # jmp 0x447AE4
+        return bytes(out)
+
+    tramp_free_script_objs = alloc_code(build_tramp_free_script_objs)
+
+    # 2i. Null-pointer guard at 0x463290 (arg2 CGraphic* -> edi): prevents crash at 0x4632BE [edi+0x7328]
+    def build_tramp_move_sprite_guard(va: int) -> bytes:
+        out = bytearray()
+        out += b"\x83\x7C\x24\x08\x00"              # cmp dword ptr [esp+0x08], 0
+        out += b"\x75\x05"                          # jne .ok (+5)
+        out += b"\x33\xC0"                          # xor eax, eax
+        out += b"\xC2\x18\x00"                      # ret 0x18
+        out += b"\x51"                              # push ecx
+        out += b"\x8B\x44\x24\x1C"                  # mov eax, dword ptr [esp+0x1C]
+        out += jmp_rel32(va + len(out), 0x463295)   # jmp 0x463295
+        return bytes(out)
+
+    tramp_move_sprite_guard = alloc_code(build_tramp_move_sprite_guard)
+
     # ------------------------------------------------------------------
     # 3. Inline code replacements (map_ch_to_sheet & cover voice dispatcher)
     # ------------------------------------------------------------------
@@ -624,6 +698,12 @@ def build_ruah_section_and_patches(exact_unp: bytes):
         (0x4346C5, bytes.fromhex("83fb08"), bytes.fromhex("83fb09")),
         (0x43488F, bytes.fromhex("83f808"), bytes.fromhex("83f809")),
         (0x43489C, bytes.fromhex("3b0c8598345500"), b"\x3B\x0C\x85" + struct.pack("<I", g_self_heal_se)),
+
+        # --- Group 4: Script Engine Safety & PS2 Port Compatibility ---
+        # 4a. 0x04000102(-1): free only script-owned objects (id > 0 & layer < 0x0A), keeping UI panels intact
+        (0x447730, bytes.fromhex("e88b970100"), jmp_rel32(0x447730, tramp_free_script_objs)),
+        # 4b. Null-pointer guard on sprite move/manipulate entry (0x463290)
+        (0x463290, bytes.fromhex("518b44241c"), jmp_rel32(0x463290, tramp_move_sprite_guard)),
     ]
 
     # Verify EVERY expected_old matches exact unpacked game image!
@@ -694,6 +774,8 @@ def build_ruah_section_and_patches(exact_unp: bytes):
             "cut_ofs": tramp_cut_ofs,
             "ste_check": tramp_ste_check,
             "ste_get": tramp_ste_get,
+            "free_script_objs": tramp_free_script_objs,
+            "move_sprite_guard": tramp_move_sprite_guard,
             "cover_voice": 0x40D3D0,
         },
         "tables": {
@@ -818,6 +900,17 @@ def simulate_and_verify(out_exe_path: str, verbose: bool = False):
                 print(f"  0x{ins.address:08x}: {ins.mnemonic:7s} {ins.op_str}")
                 if ins.mnemonic == "ret":
                     break
+            for name, hook_va in (("tramp_free_script_objs", 0x447730), ("tramp_move_sprite_guard", 0x463290)):
+                rel_j = struct.unpack_from("<i", unp, hook_va - TEXT_BASE + 1)[0]
+                t_va = hook_va + 5 + rel_j
+                t_off = t_va - RUAH_SEC_VA
+                print(f"=== Disassembly of {name} (0x{t_va:08x}, hooked from 0x{hook_va:08x}) ===")
+                for ins in md.disasm(ruah_sec[t_off : t_off + 0x90], t_va):
+                    print(f"  0x{ins.address:08x}: {ins.mnemonic:7s} {ins.op_str}")
+                    if ins.mnemonic == "jmp" and "0x447ae4" in ins.op_str or (
+                        name == "tramp_move_sprite_guard" and ins.mnemonic == "jmp"
+                    ):
+                        break
         except ImportError:
             pass
     return applied

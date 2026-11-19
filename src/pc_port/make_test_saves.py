@@ -33,6 +33,9 @@ def make_save(
     if party_exp is not None:
         struct.pack_into("<9I", buf, 0x35dc, *([party_exp] * 9))
 
+    # 2c. Clear stale Ch.1 sprite handle variables var[0x100003e0..0x100003ef] from save000.sav
+    buf[0x3e54 : 0x3e94] = b"\x00" * 64
+
     # 3. Current resume msg_id ([0x7624f0] -> looked up by 0x43fda1) at 0x43b8
     struct.pack_into("<I", buf, 0x43b8, msg_id)
 
@@ -61,7 +64,7 @@ def main():
     # 30,000 EXP -> Level 40 for all 9 party slots (0..8 incl. Hayaway & Ruah)
     targets = [
         (5, 67567, 0x001f5c, "乙女あり、遠方より来たる？",       0, None),
-        (6, 93584, 0x0024b4, "運命の選択",                       0, 30000),
+        (6, 93588, 0x0024b4, "運命の選択",                       0, 30000),
         (7, 93888, 0x0026ac, "ひみつのレッスン",                  8, 30000),
         (8, 95173, 0x0026ac, "ひみつのレッスン（ルーア参戦直前）", 8, 30000),
     ]

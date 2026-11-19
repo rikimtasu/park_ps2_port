@@ -25,14 +25,18 @@ ENEMY_ICONS = [
     "judas", "nazo",
 ]
 
-# Clean fallbacks for the 6 PS2-only camp_loading / camp_top TGAs
+# Clean fallbacks for the 3 PS2-only camp_top TGAs (camp_loading TGAs are extracted from PA_FILE.DAT)
 TGA_FALLBACKS = {
-    "data/bg/camp_loading/battle_load_0111b.tga": "data/bg/CAMP_LOADING/BATTLE_LOAD_0111a.tga",
-    "data/bg/camp_loading/battle_load_0811.tga":  "data/bg/CAMP_LOADING/BATTLE_LOAD_0111a.tga",
-    "data/bg/camp_loading/battle_load_0812.tga":  "data/bg/CAMP_LOADING/BATTLE_LOAD_0112a.tga",
     "data/bg/camp_top/battle_top_0111b.tga":      "data/bg/CAMP_TOP/BATTLE_TOP_0111a.tga",
     "data/bg/camp_top/battle_top_0811.tga":       "data/bg/CAMP_TOP/BATTLE_TOP_0111a.tga",
     "data/bg/camp_top/battle_top_0812.tga":       "data/bg/CAMP_TOP/BATTLE_TOP_0112a.tga",
+}
+
+GENERATED_LOADING_TGAS = {
+    "data/bg/battle_loading/bwp_ruah01.tga":     "data/bg/BATTLE_LOADING/BWP_RUAH01.tga",
+    "data/bg/camp_loading/battle_load_0111b.tga": "data/bg/CAMP_LOADING/BATTLE_LOAD_0111b.tga",
+    "data/bg/camp_loading/battle_load_0811.tga":  "data/bg/CAMP_LOADING/BATTLE_LOAD_0811.tga",
+    "data/bg/camp_loading/battle_load_0812.tga":  "data/bg/CAMP_LOADING/BATTLE_LOAD_0812.tga",
 }
 
 # Standard recommended prism decks for Ruah chapters
@@ -383,6 +387,12 @@ def main():
     fed = get_pf(318)
     mcd = get_pf(319)
     mpd = get_pf(320)
+    ps2_loading_tim2s = {
+        "data\\bg\\BATTLE_LOADING\\BWP_RUAH01.tga":     get_pf(525),
+        "data\\bg\\CAMP_LOADING\\BATTLE_LOAD_0111b.tga": get_pf(497),
+        "data\\bg\\CAMP_LOADING\\BATTLE_LOAD_0811.tga":  get_pf(474),
+        "data\\bg\\CAMP_LOADING\\BATTLE_LOAD_0812.tga":  get_pf(475),
+    }
     ruah_battle_voices = rba.convert_ruah_battle_voices(iso)
     iso.close()
 
@@ -417,8 +427,8 @@ def main():
         if not p:
             return default_p
         pl = p.lower().replace("\\", "/")
-        if pl == "data/bg/battle_loading/bwp_ruah01.tga":
-            return "data/bg/BATTLE_LOADING/BWP_RUAH01.tga"
+        if pl in GENERATED_LOADING_TGAS:
+            return GENERATED_LOADING_TGAS[pl]
         if pl in TGA_FALLBACKS:
             return TGA_FALLBACKS[pl]
         if pl in b_idx:
@@ -426,14 +436,19 @@ def main():
         return default_p
 
     # ================================================================
-    # 1. Generate real BWP_RUAH01.tga (Ruah battle loading screen!)
+    # 1. Extract official PS2 battle/camp loading screens (TIM2 -> 800x600 TGA)
     # ================================================================
     filia_bwp = read_pc_b("data/bg/BATTLE_LOADING/BWP_FILIA01.tga")
     bw_w, bw_h, bw_bpp, bw_desc = struct.unpack_from("<HHBB", filia_bwp, 12)
     print(f"PC BWP_FILIA01.tga format: {bw_w}x{bw_h} {bw_bpp}bpp desc=0x{bw_desc:02x}")
-    ruah_cg_epa = os.path.join(STAGED_DIR, "gfx", "PS03_8_00B.epa")
-    im_ruah_bwp = common.decode_epa_image(open(ruah_cg_epa, "rb").read()).resize((bw_w, bw_h), Image.Resampling.LANCZOS)
-    add_file("data\\bg\\BATTLE_LOADING\\BWP_RUAH01.tga", encode_tga_32(im_ruah_bwp, bpp=bw_bpp, top_down=bool(bw_desc & 0x20)))
+    for rel_path, raw_tim2 in ps2_loading_tim2s.items():
+        im_bg = common.decode_tim2_rgba(raw_tim2, 0).convert("RGBA")
+        # Composite onto solid black so semi-transparent edge pixels become fully opaque (alpha=255)
+        opaque = Image.new("RGBA", im_bg.size, (0, 0, 0, 255))
+        opaque.alpha_composite(im_bg)
+        im_scaled = opaque.resize((bw_w, bw_h), Image.Resampling.LANCZOS)
+        im_scaled.putalpha(255)
+        add_file(rel_path, encode_tga_32(im_scaled, bpp=bw_bpp, top_down=bool(bw_desc & 0x20)))
 
     # ================================================================
     # 2. Prism #225 (Heart of Peace) assets + prism.txt + prismlist.txt
