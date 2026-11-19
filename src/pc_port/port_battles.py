@@ -354,7 +354,7 @@ def main():
     # Register Playable Ally Ruah (ch = 9) 3D model template (based on Fel's shadow/light metrics)
     fel_tpl = templates.get(3) or templates[0]
     ruah_tpl = dict(fel_tpl)
-    ruah_tpl["object"] = "data/char/character/ruah/ph2chr09"
+    ruah_tpl["object"] = "data/char/character/ruah/ph2chr09.dmo"
     templates[9] = ruah_tpl
     print(f"Harvested {len(templates)} PC unit model templates from battle.dat (+ ch=9 Ruah)")
 
@@ -624,7 +624,7 @@ def main():
         bgm_s = rec[32:64].split(b"\x00", 1)[0].decode("cp932", "replace") or "bgm33"
 
         lines = [f'bgm = "{bgm_s}"']
-        for pk in range(6):
+        for pk in range(4):
             pr = struct.unpack_from("<H", rec, 352 + pk * 2)[0]
             if pr != 0:
                 lines.append(f"get_prism = {pr}")
@@ -644,6 +644,10 @@ def main():
             ret_adv = th[50]
 
             lines.append(f"area {ax}, {ay}")
+            if act_flag == 6 or (abid == 0 and astg == 0):
+                lines.append("    none")
+                lines.append("")
+                continue
             lines.append("    active_area" if act_flag == 2 else "    active")
             lines.append(f"    battle {abid}, {astg}")
             lines.append(f"    rank   {rank}")
@@ -662,14 +666,16 @@ def main():
             for ti in range(4):
                 pid, cond, val = th[18 + ti * 3], th[19 + ti * 3], th[20 + ti * 3]
                 if pid != 0:
+                    if cond > 2 and val == 0:
+                        cond, val = 1, cond
                     lines.append(f"    get_prism_term = {pid}, {cond}, {val}")
             if ret_adv:
                 lines.append(f"    return_adv {ret_adv}")
             lines.append("")
 
-        n_links = struct.unpack_from("<H", rec, 666)[0]
+        n_links = struct.unpack_from("<H", rec, 668)[0]
         for li in range(n_links):
-            x1, y1, x2, y2 = struct.unpack_from("<4H", rec, 364 + li * 8)
+            x1, y1, x2, y2 = struct.unpack_from("<4H", rec, 360 + li * 8)
             lines.append(f"link {x1},{y1}, {x2},{y2}")
 
         lines.append(DEFAULT_OSUSUME)

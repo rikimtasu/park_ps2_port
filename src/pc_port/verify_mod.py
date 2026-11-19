@@ -411,15 +411,29 @@ def main():
                 tp = m.group(1).lower().replace("\\", "/")
                 if tp not in battle_vfs:
                     errors.append(f"Missing battle TGA {tp} referenced in {ent[0]}")
-            # Check all object = "..." 3D models referenced exist in battle_vfs!
+            # Check all object = "..." 3D models referenced exist in battle_vfs and end in .dmo!
             for m in re.finditer(r'^\s*object\s*=\s*"(data/[^"]+)"', txt, re.M | re.I):
                 dp = m.group(1).lower().replace("\\", "/")
                 if not dp.endswith(".dmo"):
-                    dp_dmo = dp + ".dmo"
-                else:
-                    dp_dmo = dp
-                if dp_dmo not in battle_vfs:
-                    errors.append(f"Missing battle DMO {dp_dmo} referenced in {ent[0]}")
+                    errors.append(f"object path missing .dmo suffix: {dp} in {ent[0]}")
+                elif dp not in battle_vfs:
+                    errors.append(f"Missing battle DMO {dp} referenced in {ent[0]}")
+            # For map_*.txt: validate every link connects two distinct defined areas and every battle field exists!
+            if "/map_" in k:
+                defined_areas = {
+                    (int(m.group(1)), int(m.group(2)))
+                    for m in re.finditer(r"^\s*area\s+(\d+)\s*,\s*(\d+)", txt, re.M | re.I)
+                }
+                for m in re.finditer(r"^\s*link\s+(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", txt, re.M | re.I):
+                    a1 = (int(m.group(1)), int(m.group(2)))
+                    a2 = (int(m.group(3)), int(m.group(4)))
+                    if a1 == a2 or a1 not in defined_areas or a2 not in defined_areas:
+                        errors.append(f"Invalid map link {a1}->{a2} in {ent[0]} (areas={sorted(defined_areas)})")
+                for m in re.finditer(r"^\s*battle\s+(\d+)\s*,\s*(\d+)", txt, re.M | re.I):
+                    mbid, mstg = int(m.group(1)), int(m.group(2))
+                    fp = f"data/mapscript/map{mbid % 100:02d}/field_{mbid:04d}_{mstg:03d}.txt"
+                    if fp not in battle_vfs:
+                        errors.append(f"Missing field {fp} referenced by {ent[0]}")
 
     if ally_ruah_fields == 0:
         errors.append("No playable ally Ruah (character = 9) found in any battle1.dat field file!")
