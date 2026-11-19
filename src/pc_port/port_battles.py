@@ -98,7 +98,7 @@ PLAYER_COMMAND = ENEMY\r
 \r
 EXEC\r
 object(enemy)\r
-attack(00701 , normal , 100)\r
+attack(20000 , normal , 100)\r
 \r
 \r
 [リリトー・イフターハ]\r
@@ -106,13 +106,13 @@ PR = 5001\r
 document = 0,"【リリトー・イフターハ】　　　消費ＴＰ：２２"\r
 document = 1,"光属性攻撃。ルーアの想いを込めた槍は、全てを貫く。"\r
 ATTRIB = SHINE\r
-TYPE = MAGIC\r
+TYPE = ATTACK\r
 COST = 22\r
 PLAYER_COMMAND = ENEMY\r
 \r
 EXEC\r
 object(enemy)\r
-magic(00063 , SHINE , 160)\r
+attack(20001 , SHINE , 160)\r
 \r
 \r
 [記憶喪失？]\r
@@ -138,7 +138,7 @@ PLAYER_COMMAND = ENEMY\r
 \r
 EXEC\r
 object(enemy)\r
-attack(00701 , normal , 100)\r
+attack(20000 , normal , 100)\r
 \r
 \r
 [リリトー・イフターハ]\r
@@ -146,13 +146,13 @@ PR = 5004\r
 document = 0,"【リリトー・イフターハ】　　　消費ＴＰ：２２"\r
 document = 1,"光属性攻撃。ルーアの想いを込めた槍は、全てを貫く。"\r
 ATTRIB = SHINE\r
-TYPE = MAGIC\r
+TYPE = ATTACK\r
 COST = 22\r
 PLAYER_COMMAND = ENEMY\r
 \r
 EXEC\r
 object(enemy)\r
-magic(00063 , SHINE , 160)\r
+attack(20001 , SHINE , 160)\r
 \r
 \r
 [記憶喪失？]\r
@@ -178,7 +178,7 @@ PLAYER_COMMAND = ENEMY\r
 \r
 EXEC\r
 object(enemy)\r
-attack(00701 , normal , 110)\r
+attack(20000 , normal , 110)\r
 \r
 \r
 [ウーリー・ゼカルヤー]\r
@@ -186,13 +186,13 @@ PR = 5007\r
 document = 0,"【ウーリー・ゼカルヤー】　　　消費ＴＰ：４４"\r
 document = 1,"光属性全体攻撃。ルーアの想いが全てを包む光となる。"\r
 ATTRIB = SHINE\r
-TYPE = MAGIC\r
+TYPE = ATTACK\r
 COST = 44\r
 PLAYER_COMMAND = ENEMY_ALL\r
 \r
 EXEC\r
 object_all(enemy)\r
-magic(00063 , SHINE , 180)\r
+attack(20002 , SHINE , 180)\r
 \r
 \r
 [白き優しき風]\r
@@ -394,6 +394,7 @@ def main():
         "data\\bg\\CAMP_LOADING\\BATTLE_LOAD_0812.tga":  get_pf(475),
     }
     ruah_battle_voices = rba.convert_ruah_battle_voices(iso)
+    ruah_3d_assets = rba.generate_ruah_3d_model(read_pc_b, iso=iso)
     iso.close()
 
     # Parse all PS2 MCD records -> dict[(ch, num)] = tuple
@@ -475,10 +476,13 @@ def main():
     orig_ch_sheet = read_pc_b("ch_sheet.txt").decode("cp932", "replace")
     add_file("ch_sheet.txt", rba.build_ruah_ch_sheet(orig_ch_sheet))
 
+    orig_animelist = read_pc_b("animelist.txt").decode("cp932", "replace")
+    add_file("animelist.txt", rba.build_ruah_animelist(orig_animelist))
+
     for rel_p, data in rba.generate_ruah_ui_tgas(read_pc_b):
         add_file(rel_p, data)
 
-    for rel_p, data in rba.generate_ruah_3d_model(read_pc_b):
+    for rel_p, data in ruah_3d_assets:
         add_file(rel_p, data)
 
     for rel_p, data in ruah_battle_voices:

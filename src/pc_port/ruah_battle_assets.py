@@ -2,7 +2,8 @@
 Generate all Playable Ally Ruah (ch = 9) battle assets for battle1.dat:
   - ch_sheet.txt (appends exact PS2 CHD[8] [ルーア] growth curve into slot 8)
   - 6 battle UI TGAs (bt_v09, bt_a09, cut_09, bte_09a, bte_09b, st_e09)
-  - 3D battle model data/char/character/ruah/ph2chr09.{dmo,def,cmn,tga,_face.tga}
+  - 3D battle model data/char/character/ruah/ph2chr09.{dmo,def,cmn,tga,_face.tga,_hair.tga}
+  - animelist.txt entries 20000..20002 (LUAH_AK_01, LUAH_SP_01, LUAH_SP_02)
   - 104 battle voices (B_RUA_0000..0103.ogg @ 44100 Hz mono) + common.se + random.se
 """
 import io
@@ -289,142 +290,45 @@ def generate_ruah_ui_tgas(read_pc_b, preview_dir: str | None = None) -> list[tup
     return results
 
 
-def _recolor_fel_body_to_ruah(im: Image.Image) -> Image.Image:
-    """Recolor Fel's body texture (ph2chr03.tga) to Ruah's ash-blonde/crimson/pink/blue palette."""
-    rgba = np.array(im.convert("RGBA"), dtype=np.float32)
-    r, g, b, a = rgba[:, :, 0] / 255.0, rgba[:, :, 1] / 255.0, rgba[:, :, 2] / 255.0, rgba[:, :, 3]
-    cmax = np.maximum(np.maximum(r, g), b)
-    cmin = np.minimum(np.minimum(r, g), b)
-    delta = cmax - cmin
-    sat = np.where(cmax > 1e-5, delta / np.maximum(cmax, 1e-5), 0.0)
-    val = cmax
-
-    # Compute hue in [0, 360)
-    hue = np.zeros_like(r)
-    nz = delta > 1e-5
-    mr = nz & (cmax == r)
-    mg = nz & (cmax == g) & ~mr
-    mb = nz & ~mr & ~mg
-    hue[mr] = (60.0 * ((g[mr] - b[mr]) / delta[mr])) % 360.0
-    hue[mg] = 60.0 * ((b[mg] - r[mg]) / delta[mg]) + 120.0
-    hue[mb] = 60.0 * ((r[mb] - g[mb]) / delta[mb]) + 240.0
-
-    out = rgba.copy()
-    h, w = rgba.shape[:2]
-    yy, xx = np.mgrid[0:h, 0:w]
-
-    # UV-island-aware recoloring on 256x256 ph2chr03.tga (no threshold seams!):
-    # 1. Left-half burgundy dress islands (xx < 158, yy >= 88): smooth crimson-red (#C83E4D)
-    mask_dress = (xx < 158) & (yy >= 88) & ((hue >= 295.0) | (hue <= 10.0)) & (sat > 0.14)
-    out[:, :, 0] = np.where(mask_dress, np.clip(val * 260.0, 0, 255), out[:, :, 0])
-    out[:, :, 1] = np.where(mask_dress, np.clip(val * 92.0, 0, 255), out[:, :, 1])
-    out[:, :, 2] = np.where(mask_dress, np.clip(val * 110.0, 0, 255), out[:, :, 2])
-
-    # 2. Right-half pink hair & twintail ribbons (xx >= 158, yy >= 84): warm ash-blonde (#C9AE93)
-    #    (Leave the crimson bow/ornament heart at yy < 84 untouched red!)
-    mask_hair = (xx >= 158) & (yy >= 84) & ((hue >= 295.0) | (hue <= 10.0)) & (sat > 0.14)
-    out[:, :, 0] = np.where(mask_hair, np.clip(val * 218.0, 0, 255), out[:, :, 0])
-    out[:, :, 1] = np.where(mask_hair, np.clip(val * 188.0, 0, 255), out[:, :, 1])
-    out[:, :, 2] = np.where(mask_hair, np.clip(val * 160.0, 0, 255), out[:, :, 2])
-
-    out[:, :, 3] = a
-    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGBA")
+def build_ruah_animelist(orig_animelist: str) -> bytes:
+    """Register Ruah's PS2 action IDs (20000..20002) in animelist.txt."""
+    base = orig_animelist.rstrip("\r\n")
+    extra = (
+        "\r\n\r\n;ルーア (Playable / Enemy Boss)\r\n"
+        "20000     LUAH_AK_01                ; ノーア・シャローム\r\n"
+        "20001     LUAH_SP_01                ; リリトー・イフターハ\r\n"
+        "20002     LUAH_SP_02                ; ウーリー・ゼカルヤー\r\n"
+    )
+    return (base + extra).encode("cp932", "replace")
 
 
-def _recolor_fel_face_to_ruah(im: Image.Image) -> Image.Image:
-    """Recolor Fel's face texture (ph2chr03_face.tga): green eyes -> Ruah's deep purple, pink hair/brows -> ash-blonde."""
-    rgba = np.array(im.convert("RGBA"), dtype=np.float32)
-    r, g, b, a = rgba[:, :, 0] / 255.0, rgba[:, :, 1] / 255.0, rgba[:, :, 2] / 255.0, rgba[:, :, 3]
-    cmax = np.maximum(np.maximum(r, g), b)
-    cmin = np.minimum(np.minimum(r, g), b)
-    delta = cmax - cmin
-    sat = np.where(cmax > 1e-5, delta / np.maximum(cmax, 1e-5), 0.0)
-    val = cmax
-
-    hue = np.zeros_like(r)
-    nz = delta > 1e-5
-    mr = nz & (cmax == r)
-    mg = nz & (cmax == g) & ~mr
-    mb = nz & ~mr & ~mg
-    hue[mr] = (60.0 * ((g[mr] - b[mr]) / delta[mr])) % 360.0
-    hue[mg] = 60.0 * ((b[mg] - r[mg]) / delta[mg]) + 120.0
-    hue[mb] = 60.0 * ((r[mb] - g[mb]) / delta[mb]) + 240.0
-
-    out = rgba.copy()
-    # 1. Green irises (hue 80..170, sat > 0.25) -> Ruah's violet-purple eyes (#7B4E80)
-    mask_eye = (hue >= 80.0) & (hue <= 170.0) & (sat > 0.25)
-    out[:, :, 0] = np.where(mask_eye, np.clip(val * 175.0, 0, 255), out[:, :, 0])
-    out[:, :, 1] = np.where(mask_eye, np.clip(val * 105.0, 0, 255), out[:, :, 1])
-    out[:, :, 2] = np.where(mask_eye, np.clip(val * 185.0, 0, 255), out[:, :, 2])
-
-    # 2. Pink eyebrows & top hair tabs (hue 285..345, sat > 0.18, y < 60) -> ash-blonde
-    yy = np.arange(rgba.shape[0])[:, None]
-    mask_brow = (yy < 60) & (hue >= 285.0) & (hue <= 345.0) & (sat > 0.18)
-    out[:, :, 0] = np.where(mask_brow, np.clip(val * 205.0, 0, 255), out[:, :, 0])
-    out[:, :, 1] = np.where(mask_brow, np.clip(val * 175.0, 0, 255), out[:, :, 1])
-    out[:, :, 2] = np.where(mask_brow, np.clip(val * 148.0, 0, 255), out[:, :, 2])
-
-    out[:, :, 3] = a
-    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGBA")
-
-
-def generate_ruah_3d_model(read_pc_b, preview_dir: str | None = None) -> list[tuple[str, bytes]]:
+def generate_ruah_3d_model(
+    read_pc_b,
+    preview_dir: str | None = None,
+    iso: common.IsoReader | None = None,
+) -> list[tuple[str, bytes]]:
     """
     Build Ruah's playable 3D battle model at data/char/character/ruah/ph2chr09.*
-    by cloning Fel (ph2chr03 — twintails + ribbons + 243 animations), recoloring textures
-    to Ruah's palette, and remapping all Fel voice IDs in .def to Ruah's voices.
+    directly from her official PS2 PA_BTL.DAT[67] (00_LUAH_ph2chr09.def FLK bundle:
+    MDP skeletal mesh + 3 official TIM2 textures + DEF) and her 611-entry PS2
+    motion bank PA_BTL.DAT[108..719] (59 unique MOT animation clips).
     """
-    fel_dmo = read_pc_b("data/char/character/fel/ph2chr03.dmo")
-    fel_cmn = read_pc_b("data/char/character/fel/ph2chr03.cmn")
-    fel_def = read_pc_b("data/char/character/fel/ph2chr03.def").decode("cp932", "replace")
-    fel_tga = Image.open(io.BytesIO(read_pc_b("data/char/character/fel/ph2chr03.tga")))
-    fel_face = Image.open(io.BytesIO(read_pc_b("data/char/character/fel/ph2chr03_face.tga")))
+    import ps2_model_conv
 
-    # Same-length replacement keeps all DirectX .dmo offsets/structure intact!
-    ruah_dmo = fel_dmo.replace(b"ph2chr03.tga", b"ph2chr09.tga").replace(b"ph2chr03_face.tga", b"ph2chr09_face.tga")
-
-    # Remap Fel voice calls in .def -> Ruah voice groups & SE IDs:
-    #   EVENT_RANDOM_SOUND:X:00031: -> 00090 (Ruah attacks)
-    #   EVENT_RANDOM_SOUND:X:00032: -> 00091 (Ruah defense/backstep)
-    #   EVENT_RANDOM_SOUND:X:01003: -> 01009 (Ruah damage)
-    #   EVENT_SOUND:X:006xx..007xx: -> Ruah attack/skill voices (02100..02115)
-    def _remap_def_line(line: str) -> str:
-        line = re.sub(r"(EVENT_RANDOM_SOUND:\d+:)0*31(:)", r"\g<1>00090\2", line)
-        line = re.sub(r"(EVENT_RANDOM_SOUND:\d+:)0*32(:)", r"\g<1>00091\2", line)
-        line = re.sub(r"(EVENT_RANDOM_SOUND:\d+:)0*1003(:)", r"\g<1>01009\2", line)
-
-        def _repl_se(m):
-            sid = int(m.group(2))
-            if 600 <= sid <= 799:
-                # Map Fel's direct voice IDs deterministically to Ruah's attack/skill shouts (2100..2115)
-                new_id = RUAH_SE_BASE + (sid % 16)
-                return f"{m.group(1)}{new_id:05d}{m.group(3)}"
-            return m.group(0)
-
-        line = re.sub(r"(EVENT_SOUND:\d+:)(\d+)(:)", _repl_se, line)
-        return line
-
-    ruah_def = "\r\n".join(_remap_def_line(l) for l in fel_def.splitlines()) + "\r\n"
-
-    ruah_body_im = _recolor_fel_body_to_ruah(fel_tga)
-    ruah_face_im = _recolor_fel_face_to_ruah(fel_face)
-
-    if preview_dir:
-        os.makedirs(preview_dir, exist_ok=True)
-        ruah_body_im.save(os.path.join(preview_dir, "ph2chr09.png"))
-        ruah_face_im.save(os.path.join(preview_dir, "ph2chr09_face.png"))
-
-    # Match original TGA format (32bpp bottom-up)
-    body_tga = encode_tga(ruah_body_im, bpp=32, top_down=False)
-    face_tga = encode_tga(ruah_face_im, bpp=32, top_down=False)
-
-    return [
-        ("data/char/character/ruah/ph2chr09.dmo", ruah_dmo),
-        ("data/char/character/ruah/ph2chr09.cmn", fel_cmn),
-        ("data/char/character/ruah/ph2chr09.def", ruah_def.encode("cp932", "replace")),
-        ("data/char/character/ruah/ph2chr09.tga", body_tga),
-        ("data/char/character/ruah/ph2chr09_face.tga", face_tga),
-    ]
+    own_iso = False
+    if iso is None:
+        iso = common.IsoReader()
+        own_iso = True
+    try:
+        return ps2_model_conv.convert_ps2_ruah_to_pc(
+            iso=iso,
+            read_pc_b=read_pc_b,
+            encode_tga_fn=encode_tga,
+            preview_dir=preview_dir,
+        )
+    finally:
+        if own_iso:
+            iso.close()
 
 
 def convert_ruah_battle_voices(iso: common.IsoReader) -> list[tuple[str, bytes]]:

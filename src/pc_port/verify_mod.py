@@ -460,6 +460,7 @@ def main():
     # Verify all required Playable Ally Ruah UI, 3D model, ch_sheet, common.se, random.se assets
     req_ruah_battle_assets = [
         "ch_sheet.txt",
+        "animelist.txt",
         "data/se/common.se",
         "data/se/random.se",
         "data/char/character/ruah/ph2chr09.dmo",
@@ -467,6 +468,7 @@ def main():
         "data/char/character/ruah/ph2chr09.cmn",
         "data/char/character/ruah/ph2chr09.tga",
         "data/char/character/ruah/ph2chr09_face.tga",
+        "data/char/character/ruah/ph2chr09_hair.tga",
         "data/manabe/キャラステータス関連/キャラクター/bt_v09.tga",
         "data/manabe/キャラステータス関連/キャラステータス/bt_a09.tga",
         "data/manabe/戦闘終了画像/cut_09.tga",
@@ -507,6 +509,18 @@ def main():
         ch_txt = read_prsm_member(b1_path, b1_idx["ch_sheet.txt"], dec_tbl).decode("cp932", "replace")
         if "[ルーア]" not in ch_txt:
             errors.append("[ルーア] missing from battle1.dat/ch_sheet.txt")
+
+    if "animelist.txt" in b1_idx:
+        al_txt = read_prsm_member(b1_path, b1_idx["animelist.txt"], dec_tbl).decode("cp932", "replace")
+        for aid, anm in [("20000", "LUAH_AK_01"), ("20001", "LUAH_SP_01"), ("20002", "LUAH_SP_02")]:
+            if aid not in al_txt or anm not in al_txt:
+                errors.append(f"{aid} {anm} missing from battle1.dat/animelist.txt")
+
+    if "data/char/character/ruah/ph2chr09.dmo" in b1_idx:
+        ruah_dmo_b = read_prsm_member(b1_path, b1_idx["data/char/character/ruah/ph2chr09.dmo"], dec_tbl)
+        for marker in (b"ph2chr09_Layer1", b"ph2chr09.tga", b"ph2chr09_face.tga", b"ph2chr09_hair.tga"):
+            if marker not in ruah_dmo_b:
+                errors.append(f"Official PS2 Ruah marker {marker!r} missing in ph2chr09.dmo")
 
     # Check Prism #225 & Ruah ally/boss skills 5000..5008 in prism.txt
     ptxt = read_prsm_member(b1_path, b1_idx["prism.txt"], dec_tbl).decode("cp932", "replace")
