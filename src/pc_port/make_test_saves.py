@@ -1,0 +1,73 @@
+import os
+import shutil
+import struct
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import common
+
+OUT_DIR = os.path.join(common.MOD_OUT_DIR, "test_saves")
+
+
+def make_save(template_sav: bytes, template_thumb: bytes, slot: int, msg_id: int, ret_ip: int, title: str, route: int):
+    buf = bytearray(template_sav)
+    # 1. Chapter title at 0x2db4 (0x100 bytes, CP932 null-terminated)
+    tb = title.encode("cp932")
+    assert len(tb) < 0x100
+    buf[0x2db4 : 0x2db4 + 0x100] = tb + b"\x00" * (0x100 - len(tb))
+
+    # 2. Local variable 0x10000000 (heroine route: 0=common, 8=Ruah) at 0x2ed4
+    struct.pack_into("<I", buf, 0x2ed4, route)
+
+    # 3. Current resume msg_id ([0x7624f0] -> looked up by 0x43fda1) at 0x43b8
+    struct.pack_into("<I", buf, 0x43b8, msg_id)
+
+    # 4. Call stack (depth=1 at 0x44ac, return_ip at 0x44b0, param=0 at 0x44b4)
+    struct.pack_into("<III", buf, 0x44ac, 1, ret_ip, 0)
+
+    sav_path = os.path.join(OUT_DIR, f"save{slot:03d}.sav")
+    th_path = os.path.join(OUT_DIR, f"thumb{slot:03d}.gra")
+    with open(sav_path, "wb") as f:
+        f.write(buf)
+    with open(th_path, "wb") as f:
+        f.write(template_thumb)
+    print(f"  Created save{slot:03d}.sav (Slot {slot+1}): msg_id={msg_id}, ret=0x{ret_ip:06x}, route={route}, title={title!r}")
+
+
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    src_sav = os.path.join(common.PC_DIR, "save", "save000.sav")
+    src_th = os.path.join(common.PC_DIR, "save", "thumb000.gra")
+    template_sav = open(src_sav, "rb").read()
+    template_thumb = open(src_th, "rb").read()
+
+    # Verify all 3 target msg_ids exist uniquely in staged scenario.dat
+    sf = open(os.path.join(common.WORK_DIR, "staged", "scenario.dat"), "rb").read()
+    targets = [
+        (5, 67567, 0x001f5c, "乙女あり、遠方より来たる？", 0),
+        (6, 93584, 0x0024b4, "運命の選択",                 0),
+        (7, 93888, 0x0026ac, "ひみつのレッスン",            8),
+    ]
+    for slot, mid, ret_ip, title, route in targets:
+        # Simulate 0x43fda1 scan from offset 0x20!
+        pos = 32
+        found = None
+        while pos + 4 <= len(sf):
+            w = struct.unpack_from("<I", sf, pos)[0]
+            nw = w & 0xFF
+            if nw == 0:
+                pos += 4
+                continue
+            if (w == 0x80000307 and struct.unpack_from("<I", sf, pos + 16)[0] == mid) or \
+               (w == 0x01030d02 and struct.unpack_from("<I", sf, pos + 4)[0] == mid):
+                found = pos
+                break
+            pos += nw * 4
+        assert found is not None and found >= 0x435000, f"msg_id {mid} resolved to unexpected offset {found}"
+        make_save(template_sav, template_thumb, slot, mid, ret_ip, title, route)
+
+    print(f"\nTest saves written to: {OUT_DIR}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,8 +1,10 @@
 *.iso
 *.ISO
 *.DAT
+*.dat
 *.dll
 *.exe
 _ps2_extract/
 _verify*
+pc_ruah_mod/
 __pycache__/

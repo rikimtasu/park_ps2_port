@@ -714,3 +714,81 @@ __declspec(dllexport) int quantize_rgba_fs(
     return n_boxes;
 }
 
+/* ---- Lossless PC EPA (EP\x01\x01 mode 1=BGR / mode 2=BGRA) Encoder ---- */
+
+__declspec(dllexport) int encode_epa(const uint8_t *planar, int w, int h, int mode, uint8_t *out, int max_out) {
+    int bpp = (mode == 1) ? 3 : (mode == 2) ? 4 : (mode == 0) ? 1 : 0;
+    if (!bpp || w <= 0 || h <= 0) return -1;
+    int total = w * h * bpp;
+    if (max_out < 16 + total + (total / 15) + 64) return -2;
+
+    out[0] = 'E'; out[1] = 'P'; out[2] = 1; out[3] = 1;
+    wr32(out + 4, (uint32_t)mode);
+    wr32(out + 8, (uint32_t)w);
+    wr32(out + 12, (uint32_t)h);
+
+    int offsets[16] = {
+        0, 1, w, w + 1, 2, w - 1, 2 * w, 3,
+        2 * (w + 1), w + 2, 2 * w + 1, 2 * w - 1, 2 * (w - 1), w - 2, 3 * w, 4
+    };
+
+    int op = 16;
+    int pos = 0;
+    int lit_start = 0;
+    int lit_len = 0;
+
+    #define FLUSH_LIT() do { \
+        while (lit_len > 0) { \
+            int chunk = (lit_len > 15) ? 15 : lit_len; \
+            out[op++] = (uint8_t)chunk; \
+            memcpy(out + op, planar + lit_start, chunk); \
+            op += chunk; \
+            lit_start += chunk; \
+            lit_len -= chunk; \
+        } \
+    } while(0)
+
+    while (pos < total) {
+        int best_idx = 0;
+        int best_len = 0;
+        int max_m = total - pos;
+        if (max_m > 2047) max_m = 2047;
+
+        for (int idx = 1; idx < 16; idx++) {
+            int off = offsets[idx];
+            if (off <= 0 || off > pos) continue;
+            if (planar[pos] != planar[pos - off]) continue;
+            if (max_m >= 2 && planar[pos + 1] != planar[pos + 1 - off]) continue;
+            int ml = 0;
+            while (ml < max_m && planar[pos + ml] == planar[pos + ml - off]) ml++;
+            if (ml > best_len) {
+                best_len = ml;
+                best_idx = idx;
+                if (best_len >= 2047) break;
+            }
+        }
+
+        int min_gain = (best_len >= 8) ? 3 : 2;
+        if (best_len >= min_gain) {
+            FLUSH_LIT();
+            if (best_len < 8) {
+                out[op++] = (uint8_t)((best_idx << 4) | best_len);
+            } else {
+                out[op++] = (uint8_t)((best_idx << 4) | 0x08 | ((best_len >> 8) & 0x07));
+                out[op++] = (uint8_t)(best_len & 0xff);
+            }
+            pos += best_len;
+            lit_start = pos;
+        } else {
+            if (lit_len == 0) lit_start = pos;
+            lit_len++;
+            pos++;
+            if (lit_len == 15) FLUSH_LIT();
+        }
+    }
+    FLUSH_LIT();
+    #undef FLUSH_LIT
+    return op;
+}
+
+
