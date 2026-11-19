@@ -26,16 +26,16 @@ Simply delete those 6 files (`P_ARK201_Ruah.exe`, `archive.ini`, `ruah_mod.dat`,
   - Unpacks `P_ARK201.exe` (UPX NRV2E) and applies 49 verified binary patches + 6 x86 trampolines in `.ruah` (`VA 0x0087A000`), relocating `CSimGame` (`0x7655C0 -> 0x87B000`) to expand `m_charStat[9] -> m_charStat[10]` without shifting subsequent globals.
   - Hooks character name lookup (`ch == 9 -> "ルーア"`), battle portrait filenames (`bt_v09.tga`, `bt_a09.tga`, `st_e09.tga`), victory cut-in overlay (`cut_09.tga`), 3D character folder (`ruah\ph2chr09`), battle voice prefix (`B_RUA_%04d.ogg`), and `common.se`/`random.se` skill sound routing (`PR 5000–5008`).
   - Ruah (`[ルーア]`, `ch = 9`) fights as a playable party member across all 10 Ruah ally battles (`62, 808, 809, 810, 1810, 811, 1811, 812, 813, 1813` — 26 battle stages total), while Enemy Boss Ruah in `3811` & `1812` fights with her `22,000 LP` boss stats and skills.
-- **Expanded Omake (`SPECIAL` Menu — Unlocked & Expanded Across All 4 Sub-Modes)**:
+- **Expanded Omake (`SPECIAL` Menu — Unlocked & Expanded)**:
   - **Title Screen `OMAKE` (`SPECIAL`) Button**: Unlocked automatically along with all gallery items.
   - **CG Gallery (`ART GALLERY`)**: Adds **15 new Awake CG sets** (with 2-state normal/hover thumbnails and multi-variation click cycling):
     - **Karin Tab (`Page 4`, Slot 12)**: `PS04_4_00A`
     - **Filia Tab (`Page 7`, Slot 09)**: `PS06_7_00A..D` (4 variations)
     - **Other / Ruah Tab (`Page 8`, Slots 07–17, BGM switched to Ruah's Theme `BGM_CS8`)**: all 11 Ruah Event CG sets (`PS02_8_00A/B`, `PS03_8_00A/B/C+BG`, `PS04_8_00A`, `PS05_8_00A/B`, `PS06_8_00A..C`, `PS10_8_00A`, `PS11_8_00A..C/PS11_8_00`, `PS11_8_01A`, `PS12_8_00A..C`, `PS13_8_00_BG+RUA+HYA`, `PSED_8_00A`)
     - **Mini-CG Page 3 (`Page 9C`, Slots 09–10)**: Ruah's 2 SD Mini-CG sets (`PSMG_8_02A..D` over `PB021_4Y`, `PSMG_8_03A..E` over `PB056`)
-  - **Scene Replay (`REPLAY`)**: Expands `SYS_OS_BASE01` with **Slots 12–15** (`SYS_OS_THUMB0801..0804`), replaying 4 self-contained, battle-free Ruah Route episodes (Ch.2 Ruah's Debut, Intermission Ruah's Special Interlude, Ch.10 Ruah's Twilight Scene, and Ruah Route Ending & Epilogue).
   - **Music Mode (`SOUND THEATER`)**: Expands Page 4 (`SYS_M_BASE4` + extended `512×768` title plate `sys_m_files05.EPA`) with **Slots `M14–M19`** playing all 6 new PS2 *Awake* BGM tracks (`ルーアのテーマ`, `覚醒の絆`, `贖罪のラプソディー (Awake)`, `原罪のレクイエム (Awake)`, `Sigh… (Awake ED1)`, `追憶のノクターン (ルーアED)`).
   - **Movie Mode (`MOVIE THEATER`)**: Expands `SYS_OV_BASE` with **Slot 20** (`SYS_OV_B20`) playing **`POP22.DAT` (Ruah Ending Movie / Awake ED2)**.
+  - **Scene Replay (`REPLAY`)**: Preserved vanilla PC (11 slots, all unlocked).
 - **Story & Scripts (`scenario.dat`, `textdata.bin`, `filename.dat`)**:
   - Common Route Chapters 2–8 with Ruah's introduction (`乙女あり、遠方より来たる？`), Mediard (`中立都市メディアード`), and Ch.8 route selection (`運命の選択`, route `8`).
   - Intermission with all 6 interludes, including the 3 PS2-exclusive interludes (`哀と青春のエプロン`, `お花見大会`, `あこがれの人。戦うルーア！`).

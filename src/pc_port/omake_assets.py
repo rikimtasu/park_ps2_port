@@ -16,15 +16,6 @@ OMAKE_NEW_BGMS = [
     (19, 79, "SYS_OM_P4M19", 79,  "BGM_ED2", "追憶のノクターン (ルーアED)", 0x40E138, 34326),
 ]
 
-# 4 New Ruah Route Scene Replays added to Scene Replay (Slots 12..15 on 5x4 grid)
-OMAKE_NEW_REPLAYS = [
-    # (btn_idx 11..14, replay_id 12..15, x0, y0, x1, y1, thumb_name, unit_key, thumb_src_cg)
-    (11, 12, 228, 303, 339, 398, "SYS_OS_THUMB0801", ("ch2",    0x2F2E0), "PS02_8_00B.epa"),
-    (12, 13, 345, 303, 456, 398, "SYS_OS_THUMB0802", ("inter",  0x4C4C8), "PS04_8_00A.epa"),
-    (13, 14, 462, 303, 573, 398, "SYS_OS_THUMB0803", ("ruah10", 0x526C8), "PS10_8_00A.epa"),
-    (14, 15, 579, 303, 690, 398, "SYS_OS_THUMB0804", ("ruahEp", 0x0F178), "PSED_8_00A.epa"),
-]
-
 # Standard 20-slot CG Gallery grid coordinates and button callbacks
 CG_SLOT_COORDS = {
     1:  (111, 114, 222, 209, 0x4186A4),
@@ -184,8 +175,8 @@ def patch_omake_scripts(
     needed_bgms: dict,
     needed_movs: dict,
 ):
-    """Expand all 4 Omake modes (CG Gallery, Scene Replay, Music Mode, Movie Mode) in scenario.dat."""
-    print("\n=== Expanding Omake (CG Gallery, Scene Replay, Music Mode, Movie Mode) ===")
+    """Expand Omake (CG Gallery, Music Mode, Movie Mode) in scenario.dat."""
+    print("\n=== Expanding Omake (CG Gallery, Music Mode, Movie Mode) ===")
 
     # 1. Ensure all Omake PAGs, BGMs, and Movies are in needed_assets and filename.dat
     for lo, iname in OMAKE_REQUIRED_PAGS.items():
@@ -200,9 +191,6 @@ def patch_omake_scripts(
     needed_movs[16] = "POP22.DAT"
     pop22_fn = ensure_fn_id("POP22.DAT")
     ov_b20_fn = ensure_fn_id("SYS_OV_B20")
-
-    for _, _, _, _, _, _, thumb_name, _, _ in OMAKE_NEW_REPLAYS:
-        ensure_fn_id(thumb_name)
 
     for _, _, _, thumb_name, _, var_list in OMAKE_NEW_CGS:
         ensure_fn_id(thumb_name)
@@ -319,49 +307,7 @@ def patch_omake_scripts(
     patch_u32(0x42F8DC + 8, 0x42F8F8, movie_play20_ip, "Movie Mode play slot 20 -> POP22.DAT")
 
     # ================================================================
-    # C. SCENE REPLAY (REPLAY) EXPANSION (Slots 12..15: 4 Ruah Route Replays)
-    # ================================================================
-    replay_cb_ips = {}
-    for _, replay_id, _, _, _, _, _, _, _ in OMAKE_NEW_REPLAYS:
-        replay_cb_ips[replay_id] = emit([
-            (0x02000103, [0x30000000, replay_id]),
-            (0x02000103, [0x20000226, 0x30000000]),
-            (0x01000401, []),
-        ])
-
-    replay_reg_ops = [
-        (0x01000302, [0x4194D8]),  # Call original 0x4194d8 (registers slots 1..11 & draws SYS_OS_BASE01)
-    ]
-    for btn_idx, replay_id, x0, y0, x1, y1, thumb_name, _, _ in OMAKE_NEW_REPLAYS:
-        replay_reg_ops.append(
-            (0x0102010A, [3, btn_idx, x0, y0, x1, y1, 1, ensure_fn_id(thumb_name), replay_cb_ips[replay_id]])
-        )
-    replay_reg_ops.extend([
-        (0x01020203, [3, 1]),
-        (0x04000102, [0x104]),
-        (0x04000004, [0x104, ensure_fn_id("SYS_OS_BASE01"), 0]),
-        (0x01000401, []),
-    ])
-    replay_reg_ext_ip = emit(replay_reg_ops)
-    patch_u32(0x4193A4 + 4, 0x4194D8, replay_reg_ext_ip, "Scene Replay register slots 12..15")
-
-    replay_play_ext_ip = len(pc_sf_orig)
-    for _, replay_id, _, _, _, _, _, unit_key, _ in OMAKE_NEW_REPLAYS:
-        target_ip = unit_entries[unit_key]
-        blk_start = len(pc_sf_orig)
-        nxt_blk = blk_start + (3 + 3 + 3 + 2 + 2) * 4
-        emit([
-            (0x02000103, [0x30000001, replay_id]),
-            (0x02010003, [0x30000001, 0x30000000]),
-            (0x01000703, [0x30000001, nxt_blk]),
-            (0x01000302, [target_ip]),
-            (0x01000202, [0x419EA4]),
-        ])
-    emit([(0x01000202, [0x419EA4])])
-    patch_u32(0x419E88 + 8, 0x419EA4, replay_play_ext_ip, "Scene Replay dispatch slots 12..15")
-
-    # ================================================================
-    # D. CG GALLERY (ART GALLERY) EXPANSION (15 New CG Sets across Pages 4, 7, 8, 9C)
+    # C. CG GALLERY (ART GALLERY) EXPANSION (15 New CG Sets across Pages 4, 7, 8, 9C)
     # ================================================================
     # Switch Tab 8 (その他 / Ruah, [0x20000230]==7) BGM to BGM_CS8 (Ruah's Theme)
     patch_u32(0x419228 + 4, 301, ensure_fn_id("BGM_CS8"), "CG Gallery Page 8 BGM -> BGM_CS8")
@@ -615,7 +561,6 @@ def build_omake_graphics(
     save_epa("sys_oc_base07.EPA",  copy_slots(_load_vanilla_epa("sys_oc_base07.epa"),  [9]))
     save_epa("sys_oc_base08.EPA",  copy_slots(_load_vanilla_epa("sys_oc_base08.epa"),  list(range(7, 18))))
     save_epa("sys_oc_base09c.EPA", copy_slots(_load_vanilla_epa("sys_oc_base09c.epa"), [9, 10]))
-    save_epa("sys_os_base01.EPA",  copy_slots(_load_vanilla_epa("sys_os_base01.epa"),  [12, 13, 14, 15]))
     save_epa("sys_ov_base01.EPA",  copy_slots(_load_vanilla_epa("sys_ov_base01.epa"),  [20]))
 
     # 2. Expand Music Mode Page 4 base (sys_m_base4.EPA) with M14..M19 bars from sys_m_base1.EPA
@@ -655,17 +600,11 @@ def build_omake_graphics(
         "COMP_PSMG_8_03": comp_mg03,
     }
 
-    # 5. Generate all 20 111x190 2-state thumbnail EPAs
+    # 5. Generate all 16 111x190 2-state thumbnail EPAs (15 CG Gallery + 1 Movie Mode)
     thumb_tmpl = np.array(_load_vanilla_epa("sys_os_thumb0101.epa"))
 
     for _, _, _, thumb_name, src_key, _ in OMAKE_NEW_CGS:
         src_im = composites[src_key] if src_key in composites else get_epa_im(src_key)
-        th_im = _make_2state_thumb(thumb_tmpl, src_im)
-        epa_name = f"{thumb_name.lower()}.EPA"
-        save_epa(epa_name, th_im)
-
-    for _, _, _, _, _, _, thumb_name, _, src_key in OMAKE_NEW_REPLAYS:
-        src_im = get_epa_im(src_key)
         th_im = _make_2state_thumb(thumb_tmpl, src_im)
         epa_name = f"{thumb_name.lower()}.EPA"
         save_epa(epa_name, th_im)
@@ -675,7 +614,7 @@ def build_omake_graphics(
     save_epa("sys_ov_thum20.EPA", ov20_im)
     ov20_im.save(os.path.join(preview_dir, "sys_ov_thum20.png"))
 
-    # 6. Append the 26 new 1092-byte PJGraphicDef records to graphic.bin
+    # 6. Append the 22 new 1092-byte PJGraphicDef records to graphic.bin
     # Index vanilla slot templates so each button gets its exact screen (x, y) at 1028..1036
     # and sheet UV (src_x, src_y, w, h) at 1076..1092!
     cnt = struct.unpack_from("<I", pc_gb_orig, 12)[0]
@@ -699,13 +638,9 @@ def build_omake_graphics(
     # Movie Mode Slot 20: clone from SYS_OV_B19 and set screen (x, y) = (579, 402)
     add_gb(vanilla_gb["SYS_OV_B19"], "sys_ov_b20", "sys_ov_thum20.EPA", "sys_ov_b.bnm", xy=(579, 402))
 
-    # Scene Replay Slots 12..15: clone from SYS_OS_THUMB0101 and set screen (x, y) = (x0, y0)
-    for _, _, x0, y0, _, _, thumb_name, _, _ in OMAKE_NEW_REPLAYS:
-        add_gb(vanilla_gb["SYS_OS_THUMB0101"], thumb_name, f"{thumb_name.lower()}.EPA", "sys_oc_thumb.bnm", xy=(x0, y0))
-
     # CG Gallery 15 new thumbnails: clone from SYS_OC_THUMB01{slot_num:02d} (exact screen x,y for slot_num!)
     for _, slot_num, _, thumb_name, _, _ in OMAKE_NEW_CGS:
         tmpl_c = vanilla_gb[f"SYS_OC_THUMB01{slot_num:02d}"]
         add_gb(tmpl_c, thumb_name, f"{thumb_name.lower()}.EPA", "sys_oc_thumb.bnm")
 
-    print(f"  Added 8 expanded Omake base plates, 20 new 2-state thumbnails, and 26 graphic.bin records!")
+    print(f"  Added 7 expanded Omake base plates, 16 new 2-state thumbnails, and 22 graphic.bin records!")

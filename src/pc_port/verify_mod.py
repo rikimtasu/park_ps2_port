@@ -241,19 +241,19 @@ def main():
         ported_ins.append((pos, w, args))
         pos += nw * 4
 
-    # Check all 15 patched Master Dispatcher hooks + 12 Omake hooks land on valid instruction boundaries!
+    # Check all 15 patched Master Dispatcher hooks + 10 Omake hooks land on valid instruction boundaries!
     hook_offsets = [0x1f58, 0x1fdc, 0x2060, 0x20dc, 0x42fe0c, 0x23a8, 0x242c, 0x24b0,
                     0x2698, 0x286c, 0x2a38, 0x2c14, 0x2de8, 0x2fb4, 0x314c,
-                    0x40c368, 0x40d574, 0x40f28c, 0x42f358, 0x42f8e4, 0x4193a8, 0x419e90,
+                    0x40c368, 0x40d574, 0x40f28c, 0x42f358, 0x42f8e4,
                     0x413fac, 0x415760, 0x415bdc, 0x417bf0, 0x42e5a4]
     for ho in hook_offsets:
         tgt = struct.unpack_from("<I", sf, ho)[0]
         if tgt not in valid_ips:
             errors.append(f"Hook at 0x{ho:x} target 0x{tgt:x} not a valid ported IP!")
 
-    # Verify Expanded Omake base plates (winning from ruah_mod.dat) & 26 new Omake graphic.bin records
+    # Verify Expanded Omake base plates (winning from ruah_mod.dat) & 22 new Omake graphic.bin records
     for omake_base in ("sys_oc_base04.EPA", "sys_oc_base07.EPA", "sys_oc_base08.EPA", "sys_oc_base09c.EPA",
-                       "sys_os_base01.EPA", "sys_ov_base01.EPA", "sys_m_base4.EPA", "sys_m_files05.EPA"):
+                       "sys_ov_base01.EPA", "sys_m_base4.EPA", "sys_m_files05.EPA"):
         winner = os.path.basename(vfs[omake_base.upper()][0])
         if winner != "ruah_mod.dat":
             errors.append(f"Omake base {omake_base} did not resolve to ruah_mod.dat (got {winner})")
@@ -272,9 +272,6 @@ def main():
             errors.append(f"Bad graphic.bin (x, y) for SYS_OM_P4M{s:02d}: {gb_xy.get(f'SYS_OM_P4M{s:02d}')}")
     if gb_xy.get("SYS_OV_B20") != (579, 402):
         errors.append(f"Bad graphic.bin (x, y) for SYS_OV_B20: {gb_xy.get('SYS_OV_B20')}")
-    for idx_r, x_exp in enumerate((228, 345, 462, 579), start=1):
-        if gb_xy.get(f"SYS_OS_THUMB080{idx_r}") != (x_exp, 303):
-            errors.append(f"Bad graphic.bin (x, y) for SYS_OS_THUMB080{idx_r}: {gb_xy.get(f'SYS_OS_THUMB080{idx_r}')}")
     if len({gb_xy.get(f"SYS_OC_THUMB08{s:02d}") for s in range(7, 18)}) != 11:
         errors.append("Duplicate (x, y) coordinates among SYS_OC_THUMB0807..0817 in graphic.bin!")
 
