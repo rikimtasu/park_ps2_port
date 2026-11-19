@@ -338,6 +338,8 @@ def patch_omake_scripts(
         )
     replay_reg_ops.extend([
         (0x01020203, [3, 1]),
+        (0x04000102, [0x104]),
+        (0x04000004, [0x104, ensure_fn_id("SYS_OS_BASE01"), 0]),
         (0x01000401, []),
     ])
     replay_reg_ext_ip = emit(replay_reg_ops)
@@ -366,18 +368,22 @@ def patch_omake_scripts(
 
     # Group new CGs by page_idx (3=Page4, 6=Page7, 7=Page8, 10=Page9C)
     page_jmp_locs = {
-        3:  0x413FA8 + 4,  # SYS_OC_BASE04 end JMP 0x4186a0
-        6:  0x41575C + 4,  # SYS_OC_BASE07 end JMP 0x4186a0
-        7:  0x415BD8 + 4,  # SYS_OC_BASE08 end JMP 0x4186a0
-        10: 0x417BEC + 4,  # SYS_OC_BASE09C end JMP 0x4186a0
+        3:  (0x413FA8 + 4, "SYS_OC_BASE04"),   # SYS_OC_BASE04 end JMP 0x4186a0
+        6:  (0x41575C + 4, "SYS_OC_BASE07"),   # SYS_OC_BASE07 end JMP 0x4186a0
+        7:  (0x415BD8 + 4, "SYS_OC_BASE08"),   # SYS_OC_BASE08 end JMP 0x4186a0
+        10: (0x417BEC + 4, "SYS_OC_BASE09C"),  # SYS_OC_BASE09C end JMP 0x4186a0
     }
-    for page_idx, jmp_off in page_jmp_locs.items():
+    for page_idx, (jmp_off, base_name) in page_jmp_locs.items():
         page_cgs = [c for c in OMAKE_NEW_CGS if c[0] == page_idx]
         reg_ops = []
         for _, slot_num, _, thumb_name, _, _ in page_cgs:
             x0, y0, x1, y1, cb_ip = CG_SLOT_COORDS[slot_num]
             reg_ops.append((0x0102010A, [3, slot_num, x0, y0, x1, y1, 1, ensure_fn_id(thumb_name), cb_ip]))
-        reg_ops.append((0x01000202, [0x4186A0]))
+        reg_ops.extend([
+            (0x04000102, [0x68]),
+            (0x04000004, [0x68, ensure_fn_id(base_name), 3]),
+            (0x01000202, [0x4186A0]),
+        ])
         ext_ip = emit(reg_ops)
         patch_u32(jmp_off, 0x4186A0, ext_ip, f"CG Gallery Page {page_idx} register {len(page_cgs)} new CG thumbnails")
 
@@ -497,7 +503,13 @@ def _make_2state_thumb(template_arr: np.ndarray, src_im: Image.Image) -> Image.I
     return Image.fromarray(out, "RGBA")
 
 
-def _make_gb_record(template_rec: bytes, dname: str, epa_name: str, anm_name: str) -> bytes:
+def _make_gb_record(
+    template_rec: bytes,
+    dname: str,
+    epa_name: str,
+    anm_name: str,
+    xy: tuple[int, int] | None = None,
+) -> bytes:
     rec = bytearray(template_rec)
     db = dname.encode("cp932")
     eb = epa_name.encode("cp932")
@@ -505,6 +517,8 @@ def _make_gb_record(template_rec: bytes, dname: str, epa_name: str, anm_name: st
     rec[60:92] = db + b"\x00" * (32 - len(db))
     rec[92:124] = eb + b"\x00" * (32 - len(eb))
     rec[124:156] = ab + b"\x00" * (32 - len(ab))
+    if xy is not None:
+        struct.pack_into("<ii", rec, 1028, xy[0], xy[1])
     return bytes(rec)
 
 
@@ -583,8 +597,8 @@ def build_omake_graphics(
         assert rt.size == im.size
         written_epas[exact_name.upper()] = (exact_name, epa_bytes)
 
-    # 1. Expand numbered grid bases using vanilla sys_oc_base01.EPA (which has all 20 numbered boxes 01..20!)
-    base01 = _load_vanilla_epa("sys_oc_base01.epa")
+    # 1. Expand numbered grid bases using vanilla sys_oc_base09a.EPA (which has all 20 numbered boxes 01..20!)
+    base_all20 = _load_vanilla_epa("sys_oc_base09a.epa")
     xs = [0, 117, 234, 351, 468]
     ys = [0, 99, 198, 297]
 
@@ -593,7 +607,7 @@ def build_omake_graphics(
         for s in slot_nums:
             r, c = (s - 1) // 5, (s - 1) % 5
             x, y = xs[c], ys[r]
-            box = base01.crop((x, y, x + 111, y + 95))
+            box = base_all20.crop((x, y, x + 111, y + 95))
             out.paste(box, (x, y))
         return out
 
@@ -662,35 +676,36 @@ def build_omake_graphics(
     ov20_im.save(os.path.join(preview_dir, "sys_ov_thum20.png"))
 
     # 6. Append the 26 new 1092-byte PJGraphicDef records to graphic.bin
+    # Index vanilla slot templates so each button gets its exact screen (x, y) at 1028..1036
+    # and sheet UV (src_x, src_y, w, h) at 1076..1092!
     cnt = struct.unpack_from("<I", pc_gb_orig, 12)[0]
-    tmpl_om = tmpl_oc = tmpl_ov = None
+    vanilla_gb = {}
     for i in range(cnt):
         rec = bytes(pc_gb_orig[16 + i * 1092 : 16 + (i + 1) * 1092])
         dn = rec[60:92].split(b"\x00", 1)[0].decode("cp932", "replace").upper()
-        if dn == "SYS_OM_P4M01":
-            tmpl_om = rec
-        elif dn == "SYS_OC_THUMB0801":
-            tmpl_oc = rec
-        elif dn == "SYS_OV_B19":
-            tmpl_ov = rec
+        vanilla_gb[dn] = rec
 
-    assert tmpl_om and tmpl_oc and tmpl_ov, "Missing template graphic.bin records"
-
-    def add_gb(tmpl: bytes, dname: str, epa_name: str, anm_name: str):
+    def add_gb(tmpl: bytes, dname: str, epa_name: str, anm_name: str, xy: tuple[int, int] | None = None):
         du = dname.upper()
         if du not in gb_seen:
             gb_seen.add(du)
-            new_gb_recs.append(_make_gb_record(tmpl, dname.lower(), epa_name, anm_name))
+            new_gb_recs.append(_make_gb_record(tmpl, dname.lower(), epa_name, anm_name, xy=xy))
 
+    # Music Mode Page 4 M14..M19: clone from SYS_OM_P1M14..19 (exact screen x,y + sheet UV src_x,src_y)
     for slot_num, _, p4_name, _, _, _, _, _ in OMAKE_NEW_BGMS:
-        add_gb(tmpl_om, p4_name, "sys_m_files05.EPA", f"sys_om_p1m{slot_num:02d}.bnm")
+        tmpl_m = vanilla_gb[f"SYS_OM_P1M{slot_num:02d}"]
+        add_gb(tmpl_m, p4_name, "sys_m_files05.EPA", f"sys_om_p1m{slot_num:02d}.bnm")
 
-    add_gb(tmpl_ov, "sys_ov_b20", "sys_ov_thum20.EPA", "sys_ov_b.bnm")
+    # Movie Mode Slot 20: clone from SYS_OV_B19 and set screen (x, y) = (579, 402)
+    add_gb(vanilla_gb["SYS_OV_B19"], "sys_ov_b20", "sys_ov_thum20.EPA", "sys_ov_b.bnm", xy=(579, 402))
 
-    for _, _, _, _, _, _, thumb_name, _, _ in OMAKE_NEW_REPLAYS:
-        add_gb(tmpl_oc, thumb_name, f"{thumb_name.lower()}.EPA", "sys_oc_thumb.bnm")
+    # Scene Replay Slots 12..15: clone from SYS_OS_THUMB0101 and set screen (x, y) = (x0, y0)
+    for _, _, x0, y0, _, _, thumb_name, _, _ in OMAKE_NEW_REPLAYS:
+        add_gb(vanilla_gb["SYS_OS_THUMB0101"], thumb_name, f"{thumb_name.lower()}.EPA", "sys_oc_thumb.bnm", xy=(x0, y0))
 
-    for _, _, _, thumb_name, _, _ in OMAKE_NEW_CGS:
-        add_gb(tmpl_oc, thumb_name, f"{thumb_name.lower()}.EPA", "sys_oc_thumb.bnm")
+    # CG Gallery 15 new thumbnails: clone from SYS_OC_THUMB01{slot_num:02d} (exact screen x,y for slot_num!)
+    for _, slot_num, _, thumb_name, _, _ in OMAKE_NEW_CGS:
+        tmpl_c = vanilla_gb[f"SYS_OC_THUMB01{slot_num:02d}"]
+        add_gb(tmpl_c, thumb_name, f"{thumb_name.lower()}.EPA", "sys_oc_thumb.bnm")
 
     print(f"  Added 8 expanded Omake base plates, 20 new 2-state thumbnails, and 26 graphic.bin records!")

@@ -261,6 +261,23 @@ def main():
     if im_mf05.size != (512, 768):
         errors.append(f"sys_m_files05.EPA size {im_mf05.size} != (512, 768)")
 
+    # Verify non-overlapping screen (x, y) coordinates at graphic.bin offset 1028..1036 for Omake buttons
+    gb_xy = {}
+    for i in range(gb_cnt):
+        rec = gb_raw[16 + i * 1092 : 16 + (i + 1) * 1092]
+        dn = rec[60:92].split(b"\x00", 1)[0].decode("cp932", "replace").upper()
+        gb_xy[dn] = struct.unpack_from("<ii", rec, 1028)
+    for s in range(14, 20):
+        if gb_xy.get(f"SYS_OM_P4M{s:02d}") != (455, 237 + (s - 14) * 44):
+            errors.append(f"Bad graphic.bin (x, y) for SYS_OM_P4M{s:02d}: {gb_xy.get(f'SYS_OM_P4M{s:02d}')}")
+    if gb_xy.get("SYS_OV_B20") != (579, 402):
+        errors.append(f"Bad graphic.bin (x, y) for SYS_OV_B20: {gb_xy.get('SYS_OV_B20')}")
+    for idx_r, x_exp in enumerate((228, 345, 462, 579), start=1):
+        if gb_xy.get(f"SYS_OS_THUMB080{idx_r}") != (x_exp, 303):
+            errors.append(f"Bad graphic.bin (x, y) for SYS_OS_THUMB080{idx_r}: {gb_xy.get(f'SYS_OS_THUMB080{idx_r}')}")
+    if len({gb_xy.get(f"SYS_OC_THUMB08{s:02d}") for s in range(7, 18)}) != 11:
+        errors.append("Duplicate (x, y) coordinates among SYS_OC_THUMB0807..0817 in graphic.bin!")
+
     # Verify every single ported instruction's IP, TF, and NFD references!
     gfx_ops = {0x01010009, 0x04000004, 0x80010102, 0x80010204, 0x80010604, 0x80020002, 0x80020302}
     bgm_ops = {0x05000003, 0x05000504}
