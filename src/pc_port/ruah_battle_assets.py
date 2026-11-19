@@ -430,17 +430,32 @@ def generate_ruah_3d_model(read_pc_b, preview_dir: str | None = None) -> list[tu
 def convert_ruah_battle_voices(iso: common.IsoReader) -> list[tuple[str, bytes]]:
     """
     Extract & transcode all 104 PS2 Ruah battle voices (b_rua_0000.adx..b_rua_0103.adx)
-    from PA_SE.DAT to 44100 Hz mono OGG Vorbis (cached in staged/se_ruah/).
+    from PA_SE.DAT to 44100 Hz mono OGG Vorbis (cached in staged/se_ruah_v2/).
+
+    Note: PA_SE.DAT has 2,767 FLK entries: [0..1017] are stereo ADV SEs, [1018..2765] are the
+    1,748 mono battle SEs/voices matching the 1,748 non-empty lines of PA_SE.DAT[2766].
     """
-    cache_dir = os.path.join(common.WORK_DIR, "staged", "se_ruah")
+    cache_dir = os.path.join(common.WORK_DIR, "staged", "se_ruah_v2")
     os.makedirs(cache_dir, exist_ok=True)
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("ffmpeg not found on PATH (required for battle voice transcoding)")
 
-    snames = iso.read_flk_names("PA_SE.DAT")
-    rua_entries = [(i, n.strip()) for i, n in enumerate(snames) if n.strip().lower().startswith("b_rua_")]
+    _, entries = iso.get_flk_table("PA_SE.DAT")
+    raw_list = iso.read_flk_entry("PA_SE.DAT", len(entries) - 1)
+    if raw_list[:4] == b"ZZZ\x00":
+        raw_list = common.decompress_zzz(raw_list)
+    non_empty = [l.strip() for l in raw_list.decode("cp932", "replace").splitlines() if l.strip()]
+    battle_se_offset = (len(entries) - 1) - len(non_empty)
+    assert battle_se_offset == 1018, f"Unexpected PA_SE.DAT battle SE offset: {battle_se_offset}"
+
+    rua_entries = [
+        (battle_se_offset + k, n)
+        for k, n in enumerate(non_empty)
+        if n.lower().startswith("b_rua_")
+    ]
     assert len(rua_entries) == 104, f"Expected 104 Ruah battle voices, found {len(rua_entries)}"
+    assert rua_entries[0][0] == 2662 and rua_entries[-1][0] == 2765
 
     # Extract uncached ADX payloads sequentially from ISO, then transcode in parallel
     to_convert = []
