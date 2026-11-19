@@ -18,6 +18,7 @@ def make_save(
     title: str,
     route: int,
     party_exp: int | None = None,
+    local_vars: dict[int, int] | None = None,
 ):
     buf = bytearray(template_sav)
     # 1. Chapter title at 0x2db4 (0x100 bytes, CP932 null-terminated)
@@ -27,6 +28,10 @@ def make_save(
 
     # 2. Local variable 0x10000000 (heroine route: 0=common, 8=Ruah) at 0x2ed4
     struct.pack_into("<I", buf, 0x2ed4, route)
+    if local_vars:
+        for var_id, val in local_vars.items():
+            idx = var_id & 0xFFFF
+            struct.pack_into("<I", buf, 0x2ed4 + idx * 4, val)
 
     # 2b. Optional per-save party EXP floor (applied by P_ARK201_Ruah.exe tramp_exp_snap to all 9 allies)
     #     Stored in unused local var[0x100003dc] -> save offset 0x2ed4 + 0x3dc*4 = 0x3e44 (battle RAM 0x57593c)
@@ -62,13 +67,27 @@ def main():
     # Verify all 4 target msg_ids exist uniquely in staged scenario.dat
     sf = open(os.path.join(common.WORK_DIR, "staged", "scenario.dat"), "rb").read()
     # 30,000 EXP -> Level 40 for all 9 party slots (0..8 incl. Hayaway & Ruah)
+    # Affection thresholds at Ch.8 (0x6734ac..0x673810):
+    #   0x1..0x7 = Pricilla(7), Kagura(7), Fel(7), Karin(10), Theresa(6), Ritte(8), Filia(8)
+    #   0xC      = Ruah (>= 7 at Ch.8, > 8 for True Epilogue)
+    ch8_affection = {
+        0x10000001: 10,
+        0x10000002: 10,
+        0x10000003: 10,
+        0x10000004: 10,
+        0x10000005: 10,
+        0x10000006: 10,
+        0x10000007: 10,
+        0x1000000C: 10,
+    }
+    ruah_affection = {0x1000000C: 10}
     targets = [
-        (5, 67567, 0x001f5c, "乙女あり、遠方より来たる？",       0, None),
-        (6, 93588, 0x0024b4, "運命の選択",                       0, 30000),
-        (7, 93888, 0x0026ac, "ひみつのレッスン",                  8, 30000),
-        (8, 95173, 0x0026ac, "ひみつのレッスン（ルーア参戦直前）", 8, 30000),
+        (5, 67567, 0x001f5c, "乙女あり、遠方より来たる？",       0, None, None),
+        (6, 93588, 0x0024b4, "運命の選択",                       0, 30000, ch8_affection),
+        (7, 93888, 0x0026ac, "ひみつのレッスン",                  8, 30000, ruah_affection),
+        (8, 95173, 0x0026ac, "ひみつのレッスン（ルーア参戦直前）", 8, 30000, ruah_affection),
     ]
-    for slot, mid, ret_ip, title, route, party_exp in targets:
+    for slot, mid, ret_ip, title, route, party_exp, local_vars in targets:
         # Simulate 0x43fda1 scan from offset 0x20!
         pos = 32
         found = None
@@ -84,7 +103,10 @@ def main():
                 break
             pos += nw * 4
         assert found is not None and found >= 0x435000, f"msg_id {mid} resolved to unexpected offset {found}"
-        make_save(template_sav, template_thumb, slot, mid, ret_ip, title, route, party_exp=party_exp)
+        make_save(
+            template_sav, template_thumb, slot, mid, ret_ip, title, route,
+            party_exp=party_exp, local_vars=local_vars,
+        )
 
     print(f"\nTest saves written to: {OUT_DIR}")
 

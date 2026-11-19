@@ -435,11 +435,13 @@ def main():
     stub_ruah13 = emit_ruah_branch([unit_entries[("ruah13", 0x4cf0c)]], 0x002dfc, check_gameover=True)
     stub_ruah14 = emit_ruah_branch([unit_entries[("ruah14", 0x5d9ec)]], 0x002fc8, check_gameover=True)
 
-    # Epilogue stub for Ruah: play ED2 (POP22.DAT), call 0xf178 (旅だちの日に), set title ルーア編 クリア, then rejoin 0x003160!
+    # Epilogue stub for Ruah: play ED2 (POP22.DAT), call 0xf178 (旅だちの日に), set title ルーア編 クリア,
+    # record Ruah's PS2 route clear flag (sys[0x20000123] = 1, sys[0x200000f0] += 1 on first clear), then rejoin 0x003160!
     ruah_clear_tf = append_tf_str("ルーア編　クリア".encode("cp932"))
     pop22_fn = ensure_fn_id("POP22.DAT")
     needed_movs[16] = "POP22.DAT"
-    stub_ruahEp = emit_stub([
+    ep_base = len(pc_sf_orig)
+    ep_ops = [
         (0x02000103, [0x30000000, 0x10000000]),
         (0x02000103, [0x30000001, 8]),
         (0x02010003, [0x30000000, 0x30000001]),
@@ -448,8 +450,26 @@ def main():
         (0x05030002, [pop22_fn]),                          # Play PS2 Awake ED2 movie!
         (0x01000302, [unit_entries[("ruahEp", 0xf178)]]),  # 旅だちの日に
         (0x01000d02, [ruah_clear_tf]),                     # ルーア編 クリア
+        # Mirror PS2 PA_SCR[22] 0x14b8..0x1520: if sys[0x20000123] == 0, increment sys[0x200000f0] and set sys[0x20000123] = 1
+        (0x02000103, [0x30000001, 0x20000123]),
+        (0x02000103, [0x30000002, 0]),
+        (0x02010003, [0x30000001, 0x30000002]),
+        (0x02000103, [0x30000003, 0x30000001]),
+    ]
+    jz_after_inc_off = sum((w & 0xFF) * 4 for w, _ in ep_ops)
+    after_inc_ip = ep_base + jz_after_inc_off + 12 + 12 + 8 + 12
+    ep_ops.extend([
+        (0x01000703, [0x30000003, after_inc_ip]),
+        (0x02000103, [0x30000001, 0x200000f0]),
+        (0x02000702, [0x30000001]),
+        (0x02000103, [0x200000f0, 0x30000001]),
+        (0x02000103, [0x30000001, 1]),
+        (0x02000103, [0x20000123, 0x30000001]),
+        (0x02000103, [0x200000e0, 0x30000001]),
         (0x01000202, [0x003160]),                          # PC clear-save & return to Title
     ])
+    assert ep_base + sum((w & 0xFF) * 4 for w, _ in ep_ops[:-4]) == after_inc_ip
+    stub_ruahEp = emit_stub(ep_ops)
 
     # ---- Patch PC Master Chapter Dispatcher (ZERO relocation of existing PC code!) ----
     def patch_u32(off: int, expected: int, new_val: int, desc: str):

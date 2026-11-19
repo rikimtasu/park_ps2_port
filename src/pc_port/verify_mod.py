@@ -258,6 +258,23 @@ def main():
     if sf[0x758:0x768] != title_wait:
         errors.append("Title idle loop is missing its real one-second timed wait")
 
+    ps2_ruah_gate = struct.pack(
+        "<15I",
+        0x02000103, 0x30000000, 0x1000000C,
+        0x02000103, 0x30000001, 7,
+        0x02010403, 0x30000000, 0x30000001,
+        0x02000103, 0x30000002, 0x30000000,
+        0x02000103, 0x30000003, 0x200000F5,
+    )
+    if sf.find(ps2_ruah_gate, orig_sf_len) == -1:
+        errors.append("Ruah Ch.8 choice gate does not match PS2 (var[0x1000000C] >= 7 && sys[0x200000F5])")
+
+    ep_ip = struct.unpack_from("<I", sf, 0x314C)[0]
+    ep_end = sf.find(struct.pack("<2I", 0x01000202, 0x003160), ep_ip)
+    if ep_end == -1 or struct.pack("<2I", 0x02000103, 0x20000123) not in sf[ep_ip:ep_end + 8] \
+            or struct.pack("<2I", 0x02000103, 0x200000E0) not in sf[ep_ip:ep_end + 8]:
+        errors.append("Ruah Epilogue stub does not record PS2 route clear flags (sys[0x20000123], sys[0x200000E0])")
+
     # Verify Expanded Omake base plates (winning from ruah_mod.dat) & 22 new Omake graphic.bin records
     for omake_base in ("sys_oc_base04.EPA", "sys_oc_base07.EPA", "sys_oc_base08.EPA", "sys_oc_base09c.EPA",
                        "sys_ov_base01.EPA", "sys_m_base4.EPA", "sys_m_files05.EPA"):
