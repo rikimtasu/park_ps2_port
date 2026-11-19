@@ -45,7 +45,7 @@ Delete the eight mod files (`P_ARK201_Ruah.exe`, `archive.ini`, `ruah_mod.dat`, 
     - **Filia Tab (`Page 7`, Slot 09)**: `PS06_7_00A..D` (4 variations)
     - **Other / Ruah Tab (`Page 8`, Slots 07–17, BGM switched to Ruah's Theme `BGM_CS8`)**: all 11 Ruah Event CG sets (`PS02_8_00A/B`, `PS03_8_00A/B/C+BG`, `PS04_8_00A`, `PS05_8_00A/B`, `PS06_8_00A..C`, `PS10_8_00A`, `PS11_8_00A..C/PS11_8_00`, `PS11_8_01A`, `PS12_8_00A..C`, `PS13_8_00_BG+RUA+HYA`, `PSED_8_00A`)
     - **Mini-CG Page 3 (`Page 9C`, Slots 09–10)**: Ruah's 2 SD Mini-CG sets (`PSMG_8_02A..D` over `PB021_4Y`, `PSMG_8_03A..E` over `PB056`)
-  - **Music Mode (`SOUND THEATER`)**: Expands Page 4 (`SYS_M_BASE4` + extended `512×768` title plate `sys_m_files05.EPA`) with **Slots `M14–M19`** playing all 6 new PS2 *Awake* BGM tracks (`ルーアのテーマ`, `覚醒の絆`, `贖罪のラプソディー (Awake)`, `原罪のレクイエム (Awake)`, `Sigh… (Awake ED1)`, `追憶のノクターン (ルーアED)`).
+  - **Music Mode (`SOUND THEATER`)**: Expands Page 4 (`SYS_M_BASE4` + extended `512×768` title plate `sys_m_files05.EPA`) with **Slots `M14–M19`** playing all 6 new PS2 *Awake* BGM tracks (`勇気の宝石`, `覚醒の絆`, `悠遠のアミュレット`, `HiKaRi`, `RISE`, `Re-tune`).
   - **Movie Mode (`MOVIE THEATER`)**: Adds **slot 20** (`SYS_OV_B20`) for **`POP22.DAT` (Ruah Ending Movie / Awake ED2)** and two footer buttons for **Awake OP1** (`POP23.DAT`) and **Awake OP2** (`POP24.DAT`).
   - **Scene Replay (`REPLAY`)**: Preserved vanilla PC (11 slots, all unlocked).
 - **Story & Scripts (`scenario.dat`, `textdata.bin`, `filename.dat`)**:

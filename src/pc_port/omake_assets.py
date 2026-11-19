@@ -9,12 +9,12 @@ import awake_movies
 # 6 New PS2 Awake BGM tracks added to Music Mode Page 4 (M14..M19, track IDs 74..79)
 OMAKE_NEW_BGMS = [
     # (slot_num 14..19, track_id 74..79, fn_name, bgm_flk_idx, display_title, callback_ip, cursor_fn_id)
-    (14, 74, "SYS_OM_P4M14", 77,  "BGM_CS8", "ルーアのテーマ",             0x40DE54, 34321),
+    (14, 74, "SYS_OM_P4M14", 77,  "BGM_CS8", "勇気の宝石",                 0x40DE54, 34321),
     (15, 75, "SYS_OM_P4M15", 125, "BGM99",   "覚醒の絆",                   0x40DEE8, 34322),
-    (16, 76, "SYS_OM_P4M16", 80,  "BGM_OP1", "贖罪のラプソディー (Awake)", 0x40DF7C, 34323),
-    (17, 77, "SYS_OM_P4M17", 81,  "BGM_OP2", "原罪のレクイエム (Awake)",   0x40E010, 34324),
-    (18, 78, "SYS_OM_P4M18", 78,  "BGM_ED1", "Sigh… (Awake ED1)",          0x40E0A4, 34325),
-    (19, 79, "SYS_OM_P4M19", 79,  "BGM_ED2", "追憶のノクターン (ルーアED)", 0x40E138, 34326),
+    (16, 76, "SYS_OM_P4M16", 80,  "BGM_OP1", "悠遠のアミュレット",         0x40DF7C, 34323),
+    (17, 77, "SYS_OM_P4M17", 81,  "BGM_OP2", "HiKaRi",                     0x40E010, 34324),
+    (18, 78, "SYS_OM_P4M18", 78,  "BGM_ED1", "RISE",                       0x40E0A4, 34325),
+    (19, 79, "SYS_OM_P4M19", 79,  "BGM_ED2", "Re-tune",                    0x40E138, 34326),
 ]
 
 # Standard 20-slot CG Gallery grid coordinates and button callbacks
@@ -497,16 +497,17 @@ def _render_music_titles_on_sheet(sheet: Image.Image) -> Image.Image:
     canvas = Image.new("RGBA", (512, 768), (0, 0, 0, 0))
     canvas.paste(sheet, (0, 0))
 
-    # UV coordinates from sys_om_p1m14..19.bnm:
+    # UV coordinates from sys_om_p1m14..19.bnm paired with OMAKE_NEW_BGMS titles:
     # (x_base, y_normal, y_hover, title_str)
-    slots = [
-        (256, 318, 349, "ルーアのテーマ"),
-        (256, 380, 411, "覚醒の絆"),
-        (256, 442, 473, "贖罪のラプソディー (Awake)"),
-        (0,   512, 543, "原罪のレクイエム (Awake)"),
-        (0,   574, 605, "Sigh… (Awake ED1)"),
-        (0,   636, 667, "追憶のノクターン (ルーアED)"),
+    slot_uvs = [
+        (256, 318, 349),
+        (256, 380, 411),
+        (256, 442, 473),
+        (0,   512, 543),
+        (0,   574, 605),
+        (0,   636, 667),
     ]
+    slots = [(xb, yn, yh, bgm[5]) for (xb, yn, yh), bgm in zip(slot_uvs, OMAKE_NEW_BGMS)]
 
     font_path = r"C:\Windows\Fonts\msgothic.ttc"
     if not os.path.exists(font_path):
