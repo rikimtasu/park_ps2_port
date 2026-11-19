@@ -1,8 +1,67 @@
-# Handoff Guide — *Prism Ark - Awake* (PS2) PC CG Port
+# Handoff Guide — *Prism Ark - Awake* (PS2 ↔ PC Porting Repository)
 
-This document captures the reverse-engineered formats, build pipeline, current state, and open tasks so other contributors can inspect, test, or extend this port without re-discovering the internals.
+This repository contains two related projects built from retail *Prism Ark* (`P_ARK201.exe`) and *Prism Ark - Awake* (`SLPM-66846`, PS2):
+1. **Part A (`src/pc_port/`, active)**: Non-destructive PC port mod (`pc_ruah_mod/`, `P_ARK201_Ruah.exe`) bringing the PS2-exclusive **Ruah (`ルーア`) Route**, **Playable Ally Ruah (`ch = 9`)**, **14 PS2 battles**, **Ruah's official PS2 3D battle model/animations/voices**, and **Omake Gallery/Music/Movie additions** into the original PC game without modifying any vanilla PC archive or executable.
+2. **Part B (`src/port_cgs.py`)**: PS2 ISO patcher (`Prism_Ark_Awake_PC_CG.xdelta`) porting uncensored PC event CGs back into `PA_CG.DAT` inside `Prism Ark - Awake (Japan).iso`.
 
 ---
+
+# Part A — Non-Destructive PC Port Mod (`src/pc_port/` → `pc_ruah_mod/`)
+
+## A.1 Pipeline & File Layout (`src/pc_port/`)
+
+Build order & responsibilities:
+- `src/pc_port/common.py` — Shared ISO (`IsoReader`), `ZZZ\0` / `TIM2` / `PTL\0` decoders, `EPA` encoder/decoder, `GAMEDAT PAC2` writer, `PRSM` encryptor/writer, `textdata.bin` cryptor, and `zzz_helper.dll` loader.
+- `src/pc_port/port_audio.py` — Extracts PS2 `PA_BGM`, `PA_SE`, and `PA_VOI` (`ADX` → `44100 Hz` OGG Vorbis via `ffmpeg`), transcodes PS2 OP2 (`PSS` → `exp/POP22.DAT` `800×600` MPEG-1 + 44.1kHz MP2), and packs `ruah_voice.dat`.
+- `src/pc_port/port_graphics.py` — Extracts/upscales (`640×480` → `800×600`, `640×450` → `800×600` etc.) PS2 CGs, `PA08_*` Ruah sprites,Prism #225, `0.75s` UI plates, and camp/battle loading assets (`TIM2`/`PTL`/`PAG`) to PC `.epa` / `.anm`.
+- `src/pc_port/omake_assets.py` — Builds expanded Omake plates (`sys_oc_base04/07/08/09c.EPA`, `sys_ov_base01.EPA`, `sys_m_base4.EPA`, `sys_m_files05.EPA`) and 22 `graphic.bin` thumbnail/button entries cleanly within valid Omake sprite limits.
+- `src/pc_port/port_scripts.py` — Decompiles/translates PS2 `PA_FILE.DAT` event scripts & choice opcodes to PC `scenario.dat`, `textdata.bin`, `filename.dat`, `graphic.bin`, `BGM.ini`, hooking the 15 Master Dispatcher entry points + 10 Omake hooks, and packs `ruah_mod.dat`.
+- `src/pc_port/ps2_model_conv.py` — Converts Ruah's official PS2 `PA_BTL.DAT[67]` (`00_LUAH_ph2chr09.def` inner `FLK`: `MDP` skeletal mesh, 3 `TIM2` textures, `DEF`) and 611-entry motion bank `PA_BTL.DAT[108..719]` (59 unique `MOT\x00` clips) into PC `data/char/character/ruah/ph2chr09.{dmo,def,cmn,tga,_face.tga,_hair.tga}`.
+- `src/pc_port/ruah_battle_assets.py` — Generates `ch_sheet.txt` (`[ルーア]`), `animelist.txt` (`20000..20002`), 6 battle/camp UI `.tga`s (`bt_v09`, `bt_a09`, `cut_09`, `bte_09a`, `bte_09b`, `st_e09`, `ca_b09`, `ca_c09`), 104 battle voice `.ogg`s (`B_RUA_0000..0103.ogg` at `44100 Hz` mono), `common.se`, and `random.se`.
+- `src/pc_port/port_battles.py` — Decompiles PS2 `FED`/`MCD`/`MPD` (`PA_FILE.DAT[318..320]`) for all 14 Ruah battles (`62, 808, 809, 810, 1810, 811, 1811, 2811, 3811, 812, 1812, 813, 1813, 2813`), embeds official PS2 loading screens (`PA_FILE.DAT[525, 497, 474, 475]`), `prism.txt` (`PR = 225`, `5000..5008`), `prismlist.txt`, and writes `pc_ruah_mod/battle1.dat`.
+- `src/pc_port/patch_exe.py` — Appends a `16 KB` RWX `.ruah` PE section (`VA 0x0087A000`) to a copy of UPX-packed `P_ARK201.exe`, writes `pc_ruah_mod/P_ARK201_Ruah.exe` (`647,168` bytes), and applies 62 runtime byte patches + trampolines (`_ruah_init` at `0x0087A000` after UPX decompression at `0x008778B3` before `OEP 0x004EA43A`).
+- `src/pc_port/build_mod.py` — Master rebuild + `archive.ini` generator + install helper.
+- `src/pc_port/make_test_saves.py` — Builds isolated battle & Ruah-route test saves (`save005..save008.sav` + `thumb005..thumb008.gra`) with per-save EXP floor `30000` (`LV 40`) in `var[0x100003DC]` (`0x3E44` in save -> `0x0057593C` in battle RAM).
+- `src/pc_port/verify_mod.py` — 7-suite offline verifier covering non-destructive isolation, `archive.ini` VFS mount order, EPAs/ANMs/OGGs/`graphic.bin`, all `196,611` ported `scenario.dat` instructions + `0x43fda1` linear scan, `exp/POP22.DAT` codecs, `battle1.dat` (`PRSM` decrypt + battle script/3D model/voice checks), and `P_ARK201_Ruah.exe` boot simulation (`62` patches).
+
+### Output Package (`pc_ruah_mod/`)
+- `P_ARK201_Ruah.exe` (`647,168` B) — Patched launcher; original `P_ARK201.exe` is untouched.
+- `archive.ini` — Prepends `ruah_mod.dat` and `ruah_voice.dat` before vanilla `archive*.dat` / `bgm.dat` / `se.dat` / `voice*.dat`.
+- `ruah_mod.dat` (`299,584,889` B, `1,463` entries), `ruah_voice.dat` (`287,065,100` B, `9,156` entries), `battle1.dat` (`30,286,090` B, `186` entries, mounted automatically by `P_ARK201.exe`), `exp/POP22.DAT` (`160,178,176` B).
+- `test_saves/save005..save008.sav` & `thumb005..thumb008.gra`.
+
+## A.2 Reverse-Engineered PC Engine & Mod Internals
+
+- **Sys Crash Guards (`patch_exe.py`)**:
+  - `tramp_free_script_objs` (`0x00447730`) & `tramp_move_sprite_guard` (`0x00463290`): Guards `0x04000102(-1)` systemic layer handle dereferences (`0x0045EC66`) and invalid sprite handle crashes (`0x004632BE`) across PS2 scripts.
+  - `tramp_exp_snap` (`0x0040E3D0`): Enforces per-save EXP floor from unused local `var[0x100003DC]` (`save+0x3E44`, battle RAM `0x0057593C`) without altering character stat base `0x35DC`.
+- **Playable Ally Ruah (`ch = 9`) & Enemy Boss (`ch = 171`)**:
+  - `P_ARK201_Ruah.exe` enables `ch = 9` in camp UI, character sheet (`ca_b09.tga` / `ca_c09.tga`), status (`st_e09.tga`), battle (`bt_v09`, `bt_a09`, `cut_09`, `bte_09a`, `bte_09b`), and damage/attack voice dispatch (`00090`, `00091`, `01009`, `02100..02203`).
+  - Enemy boss Ruah (`3811`, `1812`) remaps to `ch = 171` while sharing Ruah's `ph2chr09.dmo` model template.
+- **PC `.dmo` Binary Format (verified against `0x0048CB10` in `P_ARK201.exe`)**:
+  - Header (`28` B): `<4sfIfIII` -> `b"DMO "`, `version = 1.01`, `u1 = 1`, `fps = 60.0`, `n_mesh`, `n_xfiles`, `n_bone`.
+  - Followed by `n_mesh + n_bone` node records (`0x14C` = `332` bytes each): `char[256] name`, `i32 parent`, `3f pos`, `3f rot`, `3f scl`, `3f piv`, `3f off2`, `i32 x_sz`, `i32 n_mot`, `i32 ntype`.
+  - If `ntype == 0` and `x_sz > 0`, standard ASCII DirectX `.X` file (`xof 0303txt 0032`) follows immediately (parsed by `D3DXLoadSkinMeshFromXof` at `0x49AE80`). Textures inside `TextureFilename` are loaded relative to `.dmo`'s directory (`data\char\character\ruah\`).
+  - Followed per node by `n_mot` motion tracks: `0x12C` header (`char[256] clip_name`, `i32 n_frames`, `u32 flags`, `0x24` padding) + `n_frames * ((12 if flags&1) + (12 if flags&2) + (12 if flags&4))` bytes (`pos XYZ`, `rot RX RY RZ` in radians for `Rz(rz)·Rx(rx)·Ry(ry)·T(pos)`).
+- **PS2 `MDP` + `MOT` + `DEF` Format (`PA_BTL.DAT[67]` / `[108..719]`)**:
+  - `MDP\x00`: `n_nodes` `0xF0`-byte bone nodes (`+0x28` parent, `+0x40` bind pos) + final `skin_object` pointing to `cmd_all` (`+0xA0`) and `table2` (`+0xA8`: `0x30`-byte chunk descriptors `[vif_o, vif_sz, cmd_o, cmd_sz, p1, p2, p3, p4, u8, cnt2, u10, u11]`).
+  - Coordinate conversion PS2 `(px, py, pz)` (cm, Z-up, RH) → DirectX LH bind-pose (100:1 m): `(-px/100, +pz/100, -py/100)`, outward normals `(nz, nx, -ny)`, with double-sided faces matching PC cloth/hair conventions.
+  - `MOT\x00`: 60 Hz sparse quaternion (`<I4f`) + position (`<I3f`) keyframes per bone (`M_col = T·R`), conjugated by `Cz = diag(1, 1, -1, 1)` and decomposed to PC `Rz·Rx·Ry` Euler tracks (`<= 3.4e-6` error). Note: PS2 `DEF` event timestamps ran at 30 Hz (`2×` to convert to PC 60 Hz `.def` frame numbers), whereas `MOT` keyframe times and `DEF` `tot_f` are already 60 Hz.
+
+## A.3 Current Verification & Open Testing Items
+
+- **Automated Verification (`verify_mod.py`)**: All **7 verification suites pass (`0` errors)** as of commit `6ea5950`.
+- **Installed Target**: `pc_ruah_mod/battle1.dat` (`30,286,090` B) is installed & SHA256-verified in `d:\Video_Game\Visual Novel\pajama\p_ark201\battle1.dat`.
+- **Pending Live In-Game Playtest**:
+  1. Launch `P_ARK201_Ruah.exe` and load battle test saves (`save006` / `save007` / `save008` in slots 7–9) to visually verify Ruah's real PS2 3D model (`ph2chr09.dmo` + `ph2chr09.tga`, `ph2chr09_face.tga`, `ph2chr09_hair.tga`) in Camp UI, Status screen, and active battle.
+  2. Test Ruah's custom skills in battle (`PR 5000/5003/5006` → `20000 LUAH_AK_01`, `PR 5001/5004` → `20001 LUAH_SP_01`, `PR 5007` → `20002 LUAH_SP_02`, `PR 5002/5005` → `BOUGYO`, `PR 5008` → `heal2`) and verify weapon trail attachment (`weapon_top`/`weapon_end`) and `B_RUA_*` battle voices.
+  3. Verify `ch = 171` (enemy boss Ruah in battles `3811` / `1812`) renders and animates cleanly.
+
+---
+
+# Part B — PS2 CG Decensoring Port (`src/port_cgs.py`)
+
+This workflow patches retail `PA_CG.DAT` inside `Prism Ark - Awake (Japan).iso` (`SLPM-66846`) with uncensored PC event CGs (`Prism_Ark_Awake_PC_CG.xdelta`).
 
 ## 1. Repository Layout
 
