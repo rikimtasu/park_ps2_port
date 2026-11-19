@@ -6,6 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
+import patch_exe
 
 
 def read_pac2_member(arch_path: str, member_upper: str, cache: dict) -> bytes | None:
@@ -223,7 +224,7 @@ def main():
         scan_pos += nw * 4
     if scan_pos != len(sf):
         errors.append(f"0x43fda1 linear scan ended at 0x{scan_pos:x} != len(sf) 0x{len(sf):x}")
-    for test_mid in (67567, 93584, 93888):
+    for test_mid in (67567, 93584, 93888, 95173):
         if test_mid not in seen_msg_ids or seen_msg_ids[test_mid] < orig_sf_len:
             errors.append(f"Test save msg_id {test_mid} unreachable by 0x43fda1!")
 
@@ -240,13 +241,25 @@ def main():
         ported_ins.append((pos, w, args))
         pos += nw * 4
 
-    # Check all 15 patched Master Dispatcher hooks land on valid instruction boundaries!
+    # Check all 15 patched Master Dispatcher hooks + 12 Omake hooks land on valid instruction boundaries!
     hook_offsets = [0x1f58, 0x1fdc, 0x2060, 0x20dc, 0x42fe0c, 0x23a8, 0x242c, 0x24b0,
-                    0x2698, 0x286c, 0x2a38, 0x2c14, 0x2de8, 0x2fb4, 0x314c]
+                    0x2698, 0x286c, 0x2a38, 0x2c14, 0x2de8, 0x2fb4, 0x314c,
+                    0x40c368, 0x40d574, 0x40f28c, 0x42f358, 0x42f8e4, 0x4193a8, 0x419e90,
+                    0x413fac, 0x415760, 0x415bdc, 0x417bf0, 0x42e5a4]
     for ho in hook_offsets:
         tgt = struct.unpack_from("<I", sf, ho)[0]
         if tgt not in valid_ips:
             errors.append(f"Hook at 0x{ho:x} target 0x{tgt:x} not a valid ported IP!")
+
+    # Verify Expanded Omake base plates (winning from ruah_mod.dat) & 26 new Omake graphic.bin records
+    for omake_base in ("sys_oc_base04.EPA", "sys_oc_base07.EPA", "sys_oc_base08.EPA", "sys_oc_base09c.EPA",
+                       "sys_os_base01.EPA", "sys_ov_base01.EPA", "sys_m_base4.EPA", "sys_m_files05.EPA"):
+        winner = os.path.basename(vfs[omake_base.upper()][0])
+        if winner != "ruah_mod.dat":
+            errors.append(f"Omake base {omake_base} did not resolve to ruah_mod.dat (got {winner})")
+    im_mf05 = common.decode_epa_image(read_vfs("sys_m_files05.EPA"))
+    if im_mf05.size != (512, 768):
+        errors.append(f"sys_m_files05.EPA size {im_mf05.size} != (512, 768)")
 
     # Verify every single ported instruction's IP, TF, and NFD references!
     gfx_ops = {0x01010009, 0x04000004, 0x80010102, 0x80010204, 0x80010604, 0x80020002, 0x80020302}
@@ -351,9 +364,9 @@ def main():
     print("  PASS: exp/POP22.DAT verified as 800x600 mpeg1video + 44100Hz stereo mp2 (exact PC format)!")
 
     # ================================================================
-    # 6. Verify battle1.dat (PRSM) & All 14 Ruah Battles + Prism #225
+    # 6. Verify battle1.dat (PRSM), Playable Ally Ruah (ch = 9), & All 14 Ruah Battles
     # ================================================================
-    print("\n=== [6/6] Verifying battle1.dat (PRSM) & All 14 Ruah Battles ===")
+    print("\n=== [6/7] Verifying battle1.dat (PRSM), Playable Ally Ruah (ch = 9), & All 14 Battles ===")
     dec_tbl, _ = common.load_prsm_tables()
     b0_idx = open_prsm_index(os.path.join(pc_dir, "battle.dat"), dec_tbl)
     b1_path = os.path.join(mod_dir, "battle1.dat")
@@ -361,30 +374,73 @@ def main():
     battle_vfs = dict(b0_idx)
     battle_vfs.update(b1_idx)
 
+    ally_ruah_fields = 0
+    b_rua_oggs = 0
     # Check every file in battle1.dat decrypts cleanly and has valid references!
     for k, ent in b1_idx.items():
         data = read_prsm_member(b1_path, ent, dec_tbl)
-        if k.endswith(".txt"):
+        if k.endswith(".ogg"):
+            if data[:4] != b"OggS":
+                errors.append(f"Bad OggS header in battle1.dat/{ent[0]}")
+            else:
+                sr = struct.unpack_from("<I", data, 40)[0]
+                if sr != 44100:
+                    errors.append(f"Wrong sample rate {sr} Hz in battle1.dat/{ent[0]}")
+                elif "/b_rua_" in k:
+                    b_rua_oggs += 1
+        elif k.endswith(".txt"):
             txt = data.decode("cp932", "replace")
-            # Check no unmapped ch=9 remains!
             if re.search(r"^\s*character\s*=\s*9\b", txt, re.M | re.I):
-                errors.append(f"Unmapped ch=9 in {ent[0]}")
-            if re.search(r"^\s*ch\s*=\s*9\b", txt, re.M | re.I):
-                errors.append(f"Unmapped ch=9 def in {ent[0]}")
+                ally_ruah_fields += 1
             # Check all .tga paths referenced exist in battle_vfs!
             for m in re.finditer(r'"(data/[^"]+\.tga)"', txt, re.I):
                 tp = m.group(1).lower().replace("\\", "/")
                 if tp not in battle_vfs:
                     errors.append(f"Missing battle TGA {tp} referenced in {ent[0]}")
-            # Check all .dmo models referenced exist in battle_vfs!
-            for m in re.finditer(r'"(data/[^"]+\.dmo)"', txt, re.I):
+            # Check all object = "..." 3D models referenced exist in battle_vfs!
+            for m in re.finditer(r'^\s*object\s*=\s*"(data/[^"]+)"', txt, re.M | re.I):
                 dp = m.group(1).lower().replace("\\", "/")
-                if dp not in battle_vfs:
-                    errors.append(f"Missing battle DMO {dp} referenced in {ent[0]}")
+                if not dp.endswith(".dmo"):
+                    dp_dmo = dp + ".dmo"
+                else:
+                    dp_dmo = dp
+                if dp_dmo not in battle_vfs:
+                    errors.append(f"Missing battle DMO {dp_dmo} referenced in {ent[0]}")
 
-    # Check Prism #225 & Boss Ruah skills 5003..5008 in prism.txt
+    if ally_ruah_fields == 0:
+        errors.append("No playable ally Ruah (character = 9) found in any battle1.dat field file!")
+    if b_rua_oggs != 104:
+        errors.append(f"Expected 104 Ruah battle voices (B_RUA_0000..0103.ogg) in battle1.dat, found {b_rua_oggs}")
+
+    # Verify all required Playable Ally Ruah UI, 3D model, ch_sheet, common.se, random.se assets
+    req_ruah_battle_assets = [
+        "ch_sheet.txt",
+        "data/se/common.se",
+        "data/se/random.se",
+        "data/char/character/ruah/ph2chr09.dmo",
+        "data/char/character/ruah/ph2chr09.def",
+        "data/char/character/ruah/ph2chr09.cmn",
+        "data/char/character/ruah/ph2chr09.tga",
+        "data/char/character/ruah/ph2chr09_face.tga",
+        "data/manabe/キャラステータス関連/キャラクター/bt_v09.tga",
+        "data/manabe/キャラステータス関連/キャラステータス/bt_a09.tga",
+        "data/manabe/戦闘終了画像/cut_09.tga",
+        "data/manabe/戦闘終了画像/bte_09a.tga",
+        "data/manabe/戦闘終了画像/bte_09b.tga",
+        "data/campaign/ステータス/キャラ文字/st_e09.tga",
+    ]
+    for req in req_ruah_battle_assets:
+        if req.lower() not in b1_idx:
+            errors.append(f"Missing required Playable Ruah asset in battle1.dat: {req}")
+
+    if "ch_sheet.txt" in b1_idx:
+        ch_txt = read_prsm_member(b1_path, b1_idx["ch_sheet.txt"], dec_tbl).decode("cp932", "replace")
+        if "[ルーア]" not in ch_txt:
+            errors.append("[ルーア] missing from battle1.dat/ch_sheet.txt")
+
+    # Check Prism #225 & Ruah ally/boss skills 5000..5008 in prism.txt
     ptxt = read_prsm_member(b1_path, b1_idx["prism.txt"], dec_tbl).decode("cp932", "replace")
-    for pr in (225, 5003, 5004, 5005, 5006, 5007, 5008):
+    for pr in (225, 5000, 5001, 5002, 5003, 5004, 5005, 5006, 5007, 5008):
         if f"PR = {pr}" not in ptxt:
             errors.append(f"PR = {pr} missing from battle1.dat/prism.txt")
 
@@ -396,7 +452,22 @@ def main():
         if not hits:
             errors.append(f"No field files for Ruah battle {bid}!")
 
-    print(f"  Verified all {len(b1_idx)} files in battle1.dat (all 14 Ruah battles, all TGAs/DMOs, Prism #225 + 5003..5008)!")
+    print(
+        f"  Verified all {len(b1_idx)} files in battle1.dat "
+        f"(ally ch=9 in {ally_ruah_fields} battle stages, {b_rua_oggs} 44.1kHz Ruah battle voices, "
+        f"ph2chr09 3D model, 6 UI TGAs, ch_sheet, Prism #225 + 5000..5008)!"
+    )
+
+    # ================================================================
+    # 7. Verify P_ARK201_Ruah.exe (UPX Hook + .ruah Section + Simulated Boot Patch)
+    # ================================================================
+    print("\n=== [7/7] Verifying P_ARK201_Ruah.exe Binary Patch ===")
+    exe_ruah = os.path.join(mod_dir, "P_ARK201_Ruah.exe")
+    if not os.path.exists(exe_ruah):
+        errors.append("P_ARK201_Ruah.exe missing from mod directory!")
+    else:
+        applied = patch_exe.simulate_and_verify(exe_ruah, verbose=False)
+        print(f"  PASS: P_ARK201_Ruah.exe verified ({os.path.getsize(exe_ruah):,} bytes, {applied} patches cleanly simulated)!")
 
     # ================================================================
     # Final Verdict
@@ -408,7 +479,7 @@ def main():
             print("  ERROR:", e)
         sys.exit(1)
     else:
-        print("ALL 6 VERIFICATION SUITES PASSED WITH ZERO ERRORS!")
+        print("ALL 7 VERIFICATION SUITES PASSED WITH ZERO ERRORS!")
         print("============================================================")
 
 

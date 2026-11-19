@@ -8,6 +8,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
+import ruah_battle_assets as rba
 
 STAGED_DIR = os.path.join(common.WORK_DIR, "staged")
 BATTLE_OUT = os.path.join(common.MOD_OUT_DIR, "battle1.dat")
@@ -64,7 +65,7 @@ use6  099
 use7  113
 """
 
-# New Prism #225 (Heart of Peace) + Boss Ruah's exclusive skills (PR 5003..5008)
+# New Prism #225 (Heart of Peace) + Ruah's exclusive ally & boss skills (PR 5000..5008)
 RUAH_PRISMS_TXT = """\r
 \r
 ;=====================================================================\r
@@ -84,18 +85,62 @@ TYPE = STATUS\r
 \r
 \r
 [ノーア・シャローム]\r
-PR = 5003\r
+PR = 5000\r
+document = 0,"【ノーア・シャローム】"\r
+document = 1,"ルーアの基本攻撃。鋭い穂先で突く。"\r
 ATTRIB = NORMAL\r
 TYPE = ATTACK\r
 PLAYER_COMMAND = ENEMY\r
 \r
 EXEC\r
 object(enemy)\r
-attack(01701 , normal , 100)\r
+attack(00701 , normal , 100)\r
+\r
+\r
+[リリトー・イフターハ]\r
+PR = 5001\r
+document = 0,"【リリトー・イフターハ】　　　消費ＴＰ：２２"\r
+document = 1,"光属性攻撃。ルーアの想いを込めた槍は、全てを貫く。"\r
+ATTRIB = SHINE\r
+TYPE = MAGIC\r
+COST = 22\r
+PLAYER_COMMAND = ENEMY\r
+\r
+EXEC\r
+object(enemy)\r
+magic(00063 , SHINE , 160)\r
+\r
+\r
+[記憶喪失？]\r
+PR = 5002\r
+document = 0,"【記憶喪失？】"\r
+document = 1,"わたしは、いったい誰なのでしょう？"\r
+ATTRIB = NORMAL\r
+TYPE = DEFENCE\r
+PLAYER_COMMAND = OWN_GOAL\r
+\r
+EXEC\r
+object(OWN_GOAL)\r
+defense(00027 , 200)\r
+\r
+\r
+[ノーア・シャローム]\r
+PR = 5003\r
+document = 0,"【ノーア・シャローム】"\r
+document = 1,"ルーアの基本攻撃。鋭い穂先で突く。"\r
+ATTRIB = NORMAL\r
+TYPE = ATTACK\r
+PLAYER_COMMAND = ENEMY\r
+\r
+EXEC\r
+object(enemy)\r
+attack(00701 , normal , 100)\r
 \r
 \r
 [リリトー・イフターハ]\r
 PR = 5004\r
+document = 0,"【リリトー・イフターハ】　　　消費ＴＰ：２２"\r
+document = 1,"光属性攻撃。ルーアの想いを込めた槍は、全てを貫く。"\r
 ATTRIB = SHINE\r
 TYPE = MAGIC\r
 COST = 22\r
@@ -108,6 +153,8 @@ magic(00063 , SHINE , 160)\r
 \r
 [記憶喪失？]\r
 PR = 5005\r
+document = 0,"【記憶喪失？】"\r
+document = 1,"わたしは、いったい誰なのでしょう？"\r
 ATTRIB = NORMAL\r
 TYPE = DEFENCE\r
 PLAYER_COMMAND = OWN_GOAL\r
@@ -119,17 +166,21 @@ defense(00027 , 200)\r
 \r
 [ノーア・シャローム]\r
 PR = 5006\r
+document = 0,"【ノーア・シャローム】"\r
+document = 1,"ルーアの基本攻撃。鋭い穂先で突く。"\r
 ATTRIB = NORMAL\r
 TYPE = ATTACK\r
 PLAYER_COMMAND = ENEMY\r
 \r
 EXEC\r
 object(enemy)\r
-attack(01701 , normal , 110)\r
+attack(00701 , normal , 110)\r
 \r
 \r
 [ウーリー・ゼカルヤー]\r
 PR = 5007\r
+document = 0,"【ウーリー・ゼカルヤー】　　　消費ＴＰ：４４"\r
+document = 1,"光属性全体攻撃。ルーアの想いが全てを包む光となる。"\r
 ATTRIB = SHINE\r
 TYPE = MAGIC\r
 COST = 44\r
@@ -142,6 +193,8 @@ magic(00063 , SHINE , 180)\r
 \r
 [白き優しき風]\r
 PR = 5008\r
+document = 0,"【白き優しき風】"\r
+document = 1,"白き純粋な心に、愛しき風が生まれる。"\r
 ATTRIB = NORMAL\r
 TYPE = ASSIST\r
 COST = 30\r
@@ -298,7 +351,12 @@ def format_unit_block(rec_tuple, out_ch: int, templates: dict) -> str:
 def main():
     b_idx, read_pc_b = open_pc_prsm()
     templates = extract_pc_unit_templates(b_idx, read_pc_b)
-    print(f"Harvested {len(templates)} PC unit model templates from battle.dat")
+    # Register Playable Ally Ruah (ch = 9) 3D model template (based on Fel's shadow/light metrics)
+    fel_tpl = templates.get(3) or templates[0]
+    ruah_tpl = dict(fel_tpl)
+    ruah_tpl["object"] = "data/char/character/ruah/ph2chr09"
+    templates[9] = ruah_tpl
+    print(f"Harvested {len(templates)} PC unit model templates from battle.dat (+ ch=9 Ruah)")
 
     # Index existing (map_m, ch, num) in PC char_00XX.txt so we only embed missing units
     pc_char_units = {}
@@ -317,7 +375,7 @@ def main():
                 elif m2 and cur_ch is not None:
                     pc_char_units[m].add((cur_ch, int(m2.group(1))))
 
-    # Load PS2 PA_FILE.DAT[318, 319, 320] (FED, MCD, MPD) directly from ISO
+    # Load PS2 PA_FILE.DAT[318, 319, 320] (FED, MCD, MPD) + Ruah battle voices directly from ISO
     iso = common.IsoReader()
     def get_pf(idx: int) -> bytes:
         r = iso.read_flk_entry("PA_FILE.DAT", idx)
@@ -325,6 +383,7 @@ def main():
     fed = get_pf(318)
     mcd = get_pf(319)
     mpd = get_pf(320)
+    ruah_battle_voices = rba.convert_ruah_battle_voices(iso)
     iso.close()
 
     # Parse all PS2 MCD records -> dict[(ch, num)] = tuple
@@ -396,6 +455,27 @@ def main():
     add_file("prismlist.txt", new_prismlist.encode("cp932", "replace"))
 
     # ================================================================
+    # 2b. Playable Ally Ruah (ch = 9): ch_sheet, UI TGAs, 3D model, battle voices
+    # ================================================================
+    orig_ch_sheet = read_pc_b("ch_sheet.txt").decode("cp932", "replace")
+    add_file("ch_sheet.txt", rba.build_ruah_ch_sheet(orig_ch_sheet))
+
+    for rel_p, data in rba.generate_ruah_ui_tgas(read_pc_b):
+        add_file(rel_p, data)
+
+    for rel_p, data in rba.generate_ruah_3d_model(read_pc_b):
+        add_file(rel_p, data)
+
+    for rel_p, data in ruah_battle_voices:
+        add_file(rel_p, data)
+
+    orig_common_se = read_pc_b("data/se/common.se").decode("cp932", "replace")
+    add_file("data\\se\\common.se", rba.build_ruah_common_se(orig_common_se))
+
+    orig_random_se = read_pc_b("data/se/random.se").decode("cp932", "replace")
+    add_file("data\\se\\random.se", rba.build_ruah_random_se(orig_random_se))
+
+    # ================================================================
     # 3. Decompile all 14 Ruah battles' FED -> field_XXXX_YYY.txt
     # ================================================================
     fed_cnt = struct.unpack_from("<I", fed, 4)[0]
@@ -433,7 +513,8 @@ def main():
         ev_off = 0x190 + n_ch * 10 + n_def * 6
         raw_evs = [struct.unpack_from("<4H", blk, ev_off + e * 8) for e in range(n_ev)]
 
-        # Determine if ch=9 in this stage is enemy boss (remap -> 171) or ally friend (omit)
+        # Playable Ally Ruah (ch = 9, friend) enabled natively via P_ARK201_Ruah.exe!
+        # Enemy boss [ルーア] (3811 / 1812) maps to ch=171 using Ruah's own 3D model template.
         ch9_remap = {}
         final_chs = []
         embedded_units = []
@@ -442,15 +523,18 @@ def main():
 
         for ch, num, x, y, delay in raw_chs:
             u = mcd_map.get((ch, num))
+            use_tpl_map = templates
             if ch == 9:
                 if u is not None and u[3] == 1:
-                    # Enemy boss [ルーア] -> remap cleanly to ch=171 (native PC enemy boss slot!)
+                    # Enemy boss [ルーア] -> ch=171 with Ruah's own ph2chr09 3D model!
                     out_ch = 171
                     ch9_remap[9] = 171
+                    use_tpl_map = dict(templates)
+                    use_tpl_map[171] = templates[9]
                 else:
-                    # Ally Ruah (ch=9) -> omit on PC (engine ally UI hardcodes 0..8)
-                    ch9_remap[9] = None
-                    continue
+                    # Playable Ally Ruah (ch = 9)!
+                    out_ch = 9
+                    ch9_remap[9] = 9
             else:
                 out_ch = ch
 
@@ -461,7 +545,7 @@ def main():
             if not is_clone and (out_ch, num) not in pc_char_units.get(m_dir, set()):
                 if u is not None and (out_ch, num) not in embedded_seen:
                     embedded_seen.add((out_ch, num))
-                    ublk = format_unit_block(u, out_ch, templates)
+                    ublk = format_unit_block(u, out_ch, use_tpl_map)
                     if m_dir == 62:
                         map62_units[(out_ch, num)] = ublk
                     else:

@@ -7,6 +7,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
+import omake_assets
 
 STAGED_DIR = os.path.join(common.WORK_DIR, "staged")
 GFX_OUT_DIR = os.path.join(STAGED_DIR, "gfx")
@@ -267,6 +268,13 @@ def main():
         print(f"  PXG[{cg_idx}]: processed {len(subs)} sprites")
 
     iso.close()
+
+    # ================================================================
+    # 2b. Build Omake UI Graphics & Thumbnails
+    # ================================================================
+    omake_assets.build_omake_graphics(
+        pc_gb_orig, gb_seen, new_gb_recs, written_epas, PREVIEW_DIR,
+    )
 
     # ================================================================
     # 3. Write all staged graphics & patched graphic.bin

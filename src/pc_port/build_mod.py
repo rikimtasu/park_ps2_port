@@ -16,7 +16,14 @@ SE_DIR = os.path.join(STAGED_DIR, "audio", "se")
 VOI_DIR = os.path.join(STAGED_DIR, "audio", "voice")
 EXP_DIR = os.path.join(STAGED_DIR, "exp")
 
-MOD_FILES = ("archive.ini", "ruah_mod.dat", "ruah_voice.dat", "battle1.dat", os.path.join("exp", "POP22.DAT"))
+MOD_FILES = (
+    "archive.ini",
+    "ruah_mod.dat",
+    "ruah_voice.dat",
+    "battle1.dat",
+    "P_ARK201_Ruah.exe",
+    os.path.join("exp", "POP22.DAT"),
+)
 
 ARCHIVE_INI_CONTENT = (
     "file=ruah_mod.dat\r\n"
@@ -110,15 +117,21 @@ def pack_mod(out_dir: str):
         f.write(ARCHIVE_INI_CONTENT.encode("ascii"))
     print("  Wrote archive.ini")
 
-    # 5. Verify battle1.dat exists
+    # 5. Verify battle1.dat & P_ARK201_Ruah.exe exist
     b1 = os.path.join(out_dir, "battle1.dat")
     assert os.path.exists(b1), "battle1.dat missing! Run with --all or run port_battles.py first."
     print(f"  Verified battle1.dat: {os.path.getsize(b1):,} bytes")
 
+    exe_out = os.path.join(out_dir, "P_ARK201_Ruah.exe")
+    if not os.path.exists(exe_out):
+        import patch_exe
+        patch_exe.patch_pe_exe(os.path.join(common.PC_DIR, "P_ARK201.exe"), exe_out)
+    print(f"  Verified P_ARK201_Ruah.exe: {os.path.getsize(exe_out):,} bytes")
+
     print(f"\n=== Mod Package Ready in {out_dir} ({time.time() - t0:.1f}s) ===")
 
 
-def install_mod(out_dir: str, pc_dir: str):
+def install_mod(out_dir: str, pc_dir: str, with_test_saves: bool = False):
     print(f"\n=== Installing mod non-destructively into {pc_dir} ===")
     for rel in MOD_FILES:
         src = os.path.join(out_dir, rel)
@@ -126,6 +139,14 @@ def install_mod(out_dir: str, pc_dir: str):
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)
         print(f"  Installed {rel} ({os.path.getsize(dst):,} bytes)")
+    if with_test_saves:
+        ts_dir = os.path.join(out_dir, "test_saves")
+        if os.path.isdir(ts_dir):
+            save_dir = os.path.join(pc_dir, "save")
+            os.makedirs(save_dir, exist_ok=True)
+            for fn in sorted(os.listdir(ts_dir)):
+                shutil.copy2(os.path.join(ts_dir, fn), os.path.join(save_dir, fn))
+            print(f"  Installed test saves (Slots 6-9) into {save_dir}")
     print("Install complete! Zero original PC game files were modified.")
 
 
@@ -157,7 +178,7 @@ def main():
 
     here = os.path.dirname(os.path.abspath(__file__))
     if args.all:
-        for script in ("port_scripts.py", "port_graphics.py", "port_audio.py", "port_battles.py"):
+        for script in ("port_scripts.py", "port_graphics.py", "port_audio.py", "port_battles.py", "patch_exe.py"):
             print(f"\n>>> Running {script} ...")
             subprocess.run([sys.executable, os.path.join(here, script)], env=env, check=True)
 
@@ -172,7 +193,7 @@ def main():
         subprocess.run([sys.executable, os.path.join(here, "verify_mod.py")], env=env, check=True)
 
     if args.install:
-        install_mod(common.MOD_OUT_DIR, common.PC_DIR)
+        install_mod(common.MOD_OUT_DIR, common.PC_DIR, with_test_saves=args.with_test_saves)
 
 
 if __name__ == "__main__":

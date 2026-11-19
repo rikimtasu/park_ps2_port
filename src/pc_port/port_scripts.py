@@ -5,6 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
+import omake_assets
 
 STAGED_DIR = os.path.join(common.WORK_DIR, "staged")
 MANIFEST_PATH = os.path.join(STAGED_DIR, "needed_assets.json")
@@ -293,7 +294,7 @@ def main():
         ("ch2",    2,  [0x170, 0x2f2e0]),
         ("ch3",    3,  [0x114]),
         ("ch4",    4,  [0x110]),
-        ("inter",  24, [0x438]),
+        ("inter",  24, [0x438, 0x4c4c8]),
         ("ch5",    5,  [0x12c]),
         ("ch6",    6,  [0x114]),
         ("ch7",    7,  [0x114]),
@@ -481,6 +482,12 @@ def main():
     # 20th argument (0x00010000 at 0x3f7fa4, nw==0) and halt before reaching appended scripts!
     # P_ARK201.exe (0x44c23c..0x44c24c) explicitly accepts 0x80030b15 (21 dwords).
     patch_u32(0x3f7f54, 0x80030b14, 0x80030b15, "Fix vanilla 0x80030b14 -> 0x80030b15 (21 dwords) for 0x43fda1 save/load scan")
+
+    # Expand Omake (SPECIAL) Menu: CG Gallery, Scene Replay, Music Mode, Movie Mode
+    omake_assets.patch_omake_scripts(
+        pc_sf_orig, ensure_fn_id, patch_u32, unit_entries,
+        needed_pags, needed_bgms, needed_movs,
+    )
 
     # Update header max_msg_id & write staged scenario.dat, filename.dat, textdata.bin
     struct.pack_into("<I", pc_sf_orig, 12, next_msg_id - 1)

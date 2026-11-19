@@ -41,12 +41,13 @@ def main():
     template_sav = open(src_sav, "rb").read()
     template_thumb = open(src_th, "rb").read()
 
-    # Verify all 3 target msg_ids exist uniquely in staged scenario.dat
+    # Verify all 4 target msg_ids exist uniquely in staged scenario.dat
     sf = open(os.path.join(common.WORK_DIR, "staged", "scenario.dat"), "rb").read()
     targets = [
-        (5, 67567, 0x001f5c, "乙女あり、遠方より来たる？", 0),
-        (6, 93584, 0x0024b4, "運命の選択",                 0),
-        (7, 93888, 0x0026ac, "ひみつのレッスン",            8),
+        (5, 67567, 0x001f5c, "乙女あり、遠方より来たる？",       0),
+        (6, 93584, 0x0024b4, "運命の選択",                       0),
+        (7, 93888, 0x0026ac, "ひみつのレッスン",                  8),
+        (8, 95173, 0x0026ac, "ひみつのレッスン（ルーア参戦直前）", 8),
     ]
     for slot, mid, ret_ip, title, route in targets:
         # Simulate 0x43fda1 scan from offset 0x20!

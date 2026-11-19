@@ -248,7 +248,11 @@ class IsoReader:
     def read_flk_names(self, dat_name: str):
         base, entries = self.get_flk_table(dat_name)
         raw = self.read_flk_entry(dat_name, len(entries) - 1)
-        return raw.decode("cp932", "replace").splitlines()
+        lines = [l.strip() for l in raw.decode("cp932", "replace").splitlines()]
+        non_empty = [l for l in lines if l]
+        if len(non_empty) == len(entries) - 1:
+            return non_empty
+        return lines
 
 
 def read_pc_archive_index(arch_path: str):
