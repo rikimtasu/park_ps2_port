@@ -28,10 +28,10 @@ def make_save(
     # 2. Local variable 0x10000000 (heroine route: 0=common, 8=Ruah) at 0x2ed4
     struct.pack_into("<I", buf, 0x2ed4, route)
 
-    # 2b. Optional party EXP override for all 9 character slots (0..8 incl. Ruah at slot 8)
-    #     var[0x100001c2..0x100001ca] -> byte offset 0x2ed4 + 0x708 = 0x35dc
+    # 2b. Optional per-save party EXP floor (applied by P_ARK201_Ruah.exe tramp_exp_snap to all 9 allies)
+    #     Stored in unused local var[0x100003dc] -> save offset 0x2ed4 + 0x3dc*4 = 0x3e44 (battle RAM 0x57593c)
     if party_exp is not None:
-        struct.pack_into("<9I", buf, 0x35dc, *([party_exp] * 9))
+        struct.pack_into("<I", buf, 0x3e44, party_exp)
 
     # 2c. Clear stale Ch.1 sprite handle variables var[0x100003e0..0x100003ef] from save000.sav
     buf[0x3e54 : 0x3e94] = b"\x00" * 64

@@ -170,7 +170,13 @@ def build_ruah_section_and_patches(exact_unp: bytes):
         out += call_rel32(va + len(out), 0x40D340)  # eax = map_ch_to_sheet(ch)
         out += b"\x8B\xF8"                  # mov edi, eax
         out += b"\x8B\x04\xBD" + struct.pack("<I", 0x576074)  # mov eax, [edi*4 + 0x576074]
-        out += b"\x89\x46\xFC"              # mov [esi - 4], eax
+        # Per-save EXP floor from unused local var[0x100003DC] (battle RAM 0x57593C, save offset 0x3E44):
+        # 0 on normal saves; 30000 (LV 40) on high-level test saves (Slots 7-9).
+        out += b"\x8B\x0D" + struct.pack("<I", 0x57593C)      # mov ecx, [0x57593C]
+        out += b"\x3B\xC1"                                    # cmp eax, ecx
+        out += b"\x7D\x02"                                    # jge +2
+        out += b"\x8B\xC1"                                    # mov eax, ecx
+        out += b"\x89\x46\xFC"                                # mov [esi - 4], eax
         out += b"\x50"                      # push eax (exp)  [esp+4] = ch
         out += b"\x8B\x44\x24\x04"          # mov eax, [esp + 4] (ch)
         out += b"\x50"                      # push eax (ch)
@@ -900,15 +906,19 @@ def simulate_and_verify(out_exe_path: str, verbose: bool = False):
                 print(f"  0x{ins.address:08x}: {ins.mnemonic:7s} {ins.op_str}")
                 if ins.mnemonic == "ret":
                     break
-            for name, hook_va in (("tramp_free_script_objs", 0x447730), ("tramp_move_sprite_guard", 0x463290)):
+            for name, hook_va in (
+                ("tramp_exp_snap", 0x40E3D0),
+                ("tramp_free_script_objs", 0x447730),
+                ("tramp_move_sprite_guard", 0x463290),
+            ):
                 rel_j = struct.unpack_from("<i", unp, hook_va - TEXT_BASE + 1)[0]
                 t_va = hook_va + 5 + rel_j
                 t_off = t_va - RUAH_SEC_VA
                 print(f"=== Disassembly of {name} (0x{t_va:08x}, hooked from 0x{hook_va:08x}) ===")
                 for ins in md.disasm(ruah_sec[t_off : t_off + 0x90], t_va):
                     print(f"  0x{ins.address:08x}: {ins.mnemonic:7s} {ins.op_str}")
-                    if ins.mnemonic == "jmp" and "0x447ae4" in ins.op_str or (
-                        name == "tramp_move_sprite_guard" and ins.mnemonic == "jmp"
+                    if ins.mnemonic == "jmp" and (
+                        "0x447ae4" in ins.op_str or name != "tramp_free_script_objs"
                     ):
                         break
         except ImportError:
