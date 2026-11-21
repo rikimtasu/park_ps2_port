@@ -1,29 +1,20 @@
-# Prism Ark - Awake (PS2) PC CG Port
+﻿# Prism Ark - Awake (PS2) PC CG Port
 
 xdelta3 patch porting matching CGs (uncensored event CGs, flashback/bust CGs, and censored chibi event CGs) from the PC version of *Prism Ark* into *Prism Ark - Awake* (PS2, `SLPM-66846`).
 
-## Patch File
+## Reproducing the Patch
 
-- **Patch**: `Prism_Ark_Awake_PC_CG.xdelta` (`53,209,517` bytes, created with [xdelta3 v3.2.2](https://github.com/jmacd/xdelta/releases/tag/v3.2.2))
+The binary `.xdelta` patch is **not distributed** in this repository. Rebuild it from your own copy of the games:
+
 - **Target**: `Prism Ark - Awake (Japan).iso` (`SLPM-66846`, `3,986,259,968` bytes)
+- **Original PS2 ISO SHA-256**: `bb573076512ed733888ba9b70bbc41061481e786d6b3fc48a07f912e0f53cf2c`
+- **Expected patched ISO SHA-256**: `b37aaaf6679d182f0ba5d451b32d9cd5edc1bcaf3f33d856f1a5573303e29188`
 
-### Checksums (SHA-256)
-
-- **Original PS2 ISO**: `bb573076512ed733888ba9b70bbc41061481e786d6b3fc48a07f912e0f53cf2c`
-- **Patched PS2 ISO**: `b37aaaf6679d182f0ba5d451b32d9cd5edc1bcaf3f33d856f1a5573303e29188`
-- **xdelta Patch**: `ef8f1a056a10b22db89e98bebfa38b14bf4800c9dc186bdb55d19e554ab81312`
-
-## How to Apply
-
-1. Download [xdelta3 v3.2.2](https://github.com/jmacd/xdelta/releases/tag/v3.2.2) (or use any xdelta3-compatible UI such as Delta Patcher).
-2. Run:
-
-```bash
-xdelta3 -d -s "Prism Ark - Awake (Japan).iso" Prism_Ark_Awake_PC_CG.xdelta "Prism Ark - Awake (Japan) [PC_CG].iso"
-```
-
-3. Verify the resulting ISO SHA-256 matches `b37aaaf6679d182f0ba5d451b32d9cd5edc1bcaf3f33d856f1a5573303e29188`.
-
+1. Extract `PA_CG.DAT` from the PS2 ISO and have the PC game's `archive*.dat` files available.
+2. Compile `src/zzz_helper.c` into `zzz_helper.dll` (ZZZ compressor/decompressor helper).
+3. Run `python src/port_cgs.py --pc-dir <PC archive dir> --ps2-dir <dir with PA_CG.DAT> --dll zzz_helper.dll` to produce `PA_CG_NEW.DAT` (use `--dry-run` to validate only).
+4. Write the new `PA_CG.DAT` back into the ISO at LBA `432995` (same size, `518,793,216` bytes).
+5. Optionally create a distributable patch with [xdelta3 v3.2.2](https://github.com/jmacd/xdelta/releases/tag/v3.2.2): `xdelta3 -e -s "Prism Ark - Awake (Japan).iso" "<patched>.iso" Prism_Ark_Awake_PC_CG.xdelta`
 ## Summary of Changes
 
 - Patched **311 `PAG` containers (495 texture layers)** inside `PA_CG.DAT`:
@@ -33,3 +24,4 @@ xdelta3 -d -s "Prism Ark - Awake (Japan).iso" Prism_Ark_Awake_PC_CG.xdelta "Pris
   - Preserved PS2-specific assets/UI/filters (`PE_TITLE`, `white.epa`, `black.epa`, `mouse_on_se.epa`, `fl_*.epa`, `pg01_1_00screen.epa`, `PG10_3_00_MAIN`).
 - Kept `PA_CG.DAT` at its exact `518,793,216`-byte length at LBA `432995` so ISO9660/UDF structure remains unmodified.
 - Build/conversion scripts are included under `src/`.
+
